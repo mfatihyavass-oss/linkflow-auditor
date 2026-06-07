@@ -1,0 +1,115 @@
+.maya-ils-controls {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin: 12px 0;
+}
+
+.maya-ils-controls .spinner {
+	float: none;
+	margin: 0;
+}
+
+.maya-ils-progress {
+	align-items: center;
+	display: flex;
+	gap: 10px;
+	margin: 10px 0;
+}
+
+.maya-ils-progress[hidden] {
+	display: none;
+}
+
+.maya-ils-progress-bar {
+	background: #dcdcde;
+	border-radius: 999px;
+	height: 8px;
+	overflow: hidden;
+	width: min(320px, 100%);
+}
+
+.maya-ils-progress-bar span {
+	background: #2271b1;
+	display: block;
+	height: 100%;
+	transition: width 0.2s ease;
+	width: 0;
+}
+
+.maya-ils-message {
+	margin: 8px 0;
+	min-height: 20px;
+}
+
+.maya-ils-error {
+	color: #b32d2e;
+}
+
+.maya-ils-summary {
+	margin: 10px 0;
+}
+
+.maya-ils-empty {
+	color: #646970;
+}
+
+.maya-ils-table-wrap {
+	margin-top: 12px;
+	overflow-x: auto;
+}
+
+.maya-ils-report-table th:nth-child(3),
+.maya-ils-report-table th:nth-child(4),
+.maya-ils-report-table th:nth-child(5),
+.maya-ils-report-table th:nth-child(6),
+.maya-ils-report-table td:nth-child(3),
+.maya-ils-report-table td:nth-child(4),
+.maya-ils-report-table td:nth-child(5),
+.maya-ils-report-table td:nth-child(6) {
+	text-align: right;
+	white-space: nowrap;
+	width: 115px;
+}
+
+.maya-ils-report-table th:nth-child(7),
+.maya-ils-report-table td:nth-child(7) {
+	white-space: nowrap;
+	width: 80px;
+}
+
+.maya-ils-report-table .maya-ils-url {
+	color: #646970;
+	font-size: 12px;
+	line-height: 1.4;
+	margin-top: 2px;
+	word-break: break-word;
+}
+
+.maya-ils-report-table .maya-ils-url a {
+	color: #646970;
+}
+
+.maya-ils-report-table .maya-ils-zero td:nth-child(3) strong {
+	color: #b32d2e;
+}
+
+.maya-ils-page .maya-ils-report-table {
+	max-width: 1200px;
+}
+
+@media screen and (max-width: 782px) {
+	.maya-ils-controls {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.maya-ils-controls .button {
+		text-align: center;
+	}
+
+	.maya-ils-progress {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+}
