@@ -1,27 +1,34 @@
-.maya-ils-controls {
+.lfa-controls {
 	display: flex;
 	align-items: center;
 	gap: 8px;
 	margin: 12px 0;
 }
 
-.maya-ils-controls .spinner {
+.lfa-controls .spinner {
 	float: none;
 	margin: 0;
 }
 
-.maya-ils-progress {
+.lfa-check-external {
+	align-items: center;
+	display: inline-flex;
+	gap: 4px;
+	margin-left: 4px;
+}
+
+.lfa-progress {
 	align-items: center;
 	display: flex;
 	gap: 10px;
 	margin: 10px 0;
 }
 
-.maya-ils-progress[hidden] {
+.lfa-progress[hidden] {
 	display: none;
 }
 
-.maya-ils-progress-bar {
+.lfa-progress-bar {
 	background: #dcdcde;
 	border-radius: 999px;
 	height: 8px;
@@ -29,7 +36,7 @@
 	width: min(320px, 100%);
 }
 
-.maya-ils-progress-bar span {
+.lfa-progress-bar span {
 	background: #2271b1;
 	display: block;
 	height: 100%;
@@ -37,48 +44,135 @@
 	width: 0;
 }
 
-.maya-ils-message {
+.lfa-message {
 	margin: 8px 0;
 	min-height: 20px;
 }
 
-.maya-ils-error {
+.lfa-error {
 	color: #b32d2e;
 }
 
-.maya-ils-summary {
+.lfa-summary {
 	margin: 10px 0;
 }
 
-.maya-ils-empty {
+.lfa-settings {
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	margin: 14px 0 18px;
+	max-width: 960px;
+	padding: 14px 16px;
+}
+
+.lfa-settings h2 {
+	margin-top: 0;
+}
+
+.lfa-stats {
+	display: grid;
+	gap: 12px;
+	grid-template-columns: repeat(4, minmax(140px, 1fr));
+	margin: 14px 0 18px;
+	max-width: 960px;
+}
+
+.lfa-stat-card {
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-left: 4px solid #2271b1;
+	box-sizing: border-box;
+	min-height: 86px;
+	padding: 14px 16px;
+}
+
+.lfa-stat-card strong {
+	color: #1d2327;
+	display: block;
+	font-size: 28px;
+	line-height: 1.1;
+}
+
+.lfa-stat-card span {
+	color: #50575e;
+	display: block;
+	margin-top: 8px;
+}
+
+.lfa-empty {
 	color: #646970;
 }
 
-.maya-ils-table-wrap {
+.lfa-status {
+	border-radius: 999px;
+	display: inline-block;
+	font-weight: 600;
+	line-height: 1.6;
+	padding: 1px 8px;
+	white-space: nowrap;
+}
+
+.lfa-status--broken {
+	background: #fcf0f1;
+	color: #8a1f11;
+}
+
+.lfa-status--warning {
+	background: #fcf9e8;
+	color: #6f4e00;
+}
+
+.lfa-tabs {
+	margin-top: 18px;
+	max-width: 1400px;
+}
+
+.lfa-tab-nav {
+	margin-bottom: 0;
+}
+
+.lfa-tab-count {
+	color: #646970;
+	font-weight: 400;
+	margin-left: 4px;
+}
+
+.lfa-tab-panel {
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	border-top: 0;
+	padding: 12px;
+}
+
+.lfa-section-title {
+	margin-top: 24px;
+}
+
+.lfa-table-wrap {
 	margin-top: 12px;
 	overflow-x: auto;
 }
 
-.maya-ils-report-table th:nth-child(3),
-.maya-ils-report-table th:nth-child(4),
-.maya-ils-report-table th:nth-child(5),
-.maya-ils-report-table th:nth-child(6),
-.maya-ils-report-table td:nth-child(3),
-.maya-ils-report-table td:nth-child(4),
-.maya-ils-report-table td:nth-child(5),
-.maya-ils-report-table td:nth-child(6) {
+.lfa-report-table th:nth-child(3),
+.lfa-report-table th:nth-child(4),
+.lfa-report-table th:nth-child(5),
+.lfa-report-table th:nth-child(6),
+.lfa-report-table td:nth-child(3),
+.lfa-report-table td:nth-child(4),
+.lfa-report-table td:nth-child(5),
+.lfa-report-table td:nth-child(6) {
 	text-align: right;
 	white-space: nowrap;
 	width: 115px;
 }
 
-.maya-ils-report-table th:nth-child(7),
-.maya-ils-report-table td:nth-child(7) {
+.lfa-report-table th:nth-child(7),
+.lfa-report-table td:nth-child(7) {
 	white-space: nowrap;
 	width: 80px;
 }
 
-.maya-ils-report-table .maya-ils-url {
+.lfa-report-table .lfa-url {
 	color: #646970;
 	font-size: 12px;
 	line-height: 1.4;
@@ -86,30 +180,83 @@
 	word-break: break-word;
 }
 
-.maya-ils-report-table .maya-ils-url a {
+.lfa-report-table .lfa-url a {
 	color: #646970;
 }
 
-.maya-ils-report-table .maya-ils-zero td:nth-child(3) strong {
+.lfa-report-table .lfa-zero td:nth-child(3) strong {
 	color: #b32d2e;
 }
 
-.maya-ils-page .maya-ils-report-table {
+.lfa-page .lfa-report-table {
 	max-width: 1200px;
 }
 
+.lfa-status-table {
+	table-layout: auto;
+}
+
+.lfa-status-table th,
+.lfa-status-table td {
+	vertical-align: top;
+}
+
+.lfa-status-table a,
+.lfa-occurrence-table a {
+	word-break: break-word;
+}
+
+.lfa-broken-table th:nth-child(5),
+.lfa-broken-table td:nth-child(5),
+.lfa-broken-table th:nth-child(6),
+.lfa-broken-table td:nth-child(6),
+.lfa-redirect-table th:nth-child(2),
+.lfa-redirect-table td:nth-child(2),
+.lfa-redirect-table th:nth-child(4),
+.lfa-redirect-table td:nth-child(4),
+.lfa-redirect-table th:nth-child(5),
+.lfa-redirect-table td:nth-child(5) {
+	text-align: right;
+	white-space: nowrap;
+	width: 90px;
+}
+
+.lfa-details summary {
+	color: #2271b1;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.lfa-occurrence-table {
+	margin-top: 10px;
+	min-width: 760px;
+}
+
+.lfa-occurrence-table th,
+.lfa-occurrence-table td {
+	font-size: 12px;
+}
+
 @media screen and (max-width: 782px) {
-	.maya-ils-controls {
+	.lfa-controls {
 		align-items: stretch;
 		flex-direction: column;
 	}
 
-	.maya-ils-controls .button {
+	.lfa-controls .button {
 		text-align: center;
 	}
 
-	.maya-ils-progress {
+	.lfa-progress {
 		align-items: flex-start;
 		flex-direction: column;
+	}
+
+	.lfa-check-external {
+		margin-left: 0;
+	}
+
+	.lfa-stats {
+		grid-template-columns: 1fr;
 	}
 }

@@ -1,105 +1,201 @@
-# İç Link Sayıcı
+# LinkFlow Auditor
 
-İç Link Sayıcı, WordPress yönetim panelinde çalışan hafif bir iç link raporlama eklentisidir. Maya Hukuk için geliştirilmiştir.
+LinkFlow Auditor is a lightweight WordPress admin plugin for auditing internal links, broken links and redirecting links without running every check at once.
 
-Eklenti, yönetici `Kontrol et` düğmesine basmadan tarama yapmaz. Yayınlanmış yazı ve sayfa içeriklerindeki bağlantıları inceler, her içerik için gelen iç linkleri ve çıkan iç linkleri ayrı ayrı hesaplar. Rapor, gelen iç linki en az olan içerikleri üstte gösterir.
+The plugin is designed for content-heavy WordPress sites where SEO teams need to find underlinked pages, broken internal URLs and unnecessary 3XX redirect hops from inside the WordPress dashboard.
 
-## Özellikler
+## Status
 
-- WordPress başlangıç ekranında hızlı kontrol kutusu.
-- Araçlar > İç Link Sayıcı altında tam rapor sayfası.
-- Manuel tarama; otomatik cron veya ziyaretçi tarafı işlem yok.
-- Raporu sil düğmesi.
-- Tıklanabilir içerik başlığı ve URL.
-- Gelen iç link sayısı.
-- Link veren tekil içerik sayısı.
-- Çıkan iç link sayısı.
-- Link verilen tekil içerik sayısı.
-- Büyük sitelerde yükü azaltmak için parçalı AJAX tarama.
-- Rapor verileri autoload edilmeden saklanır.
+- Current version: `1.4.0`
+- WordPress minimum: `6.4`
+- PHP minimum: `7.4`
+- Main plugin file: `linkflow-auditor.php`
+- Text domain: `linkflow-auditor`
+- Package folder: `linkflow-auditor`
 
-## Rapor Sütunları
+## Features
 
-| Sütun | Açıklama |
-| --- | --- |
-| İçerik | Yazı veya sayfa başlığı. Başlık ve URL tıklanabilir. |
-| Tür | Yazı veya Sayfa. |
-| Gelen iç link | Site içindeki diğer yazı/sayfa içeriklerinden bu içeriğe verilen toplam link sayısı. |
-| Link veren içerik | Bu içeriğe en az bir link veren tekil yazı/sayfa sayısı. |
-| Çıkan iç link | Bu içerikten site içindeki diğer yazı/sayfalara verilen toplam link sayısı. |
-| Link verilen içerik | Bu içerikten link verilen tekil yazı/sayfa sayısı. |
-| İşlem | İlgili içeriğin WordPress düzenleme bağlantısı. |
+- Internal link count report for published public post types.
+- Broken link report for 404, 410, other 4XX/5XX responses and restricted 401/403 responses.
+- Redirect report for 301, 302, 307 and 308 links.
+- Separate admin tabs and separate scan buttons for each report.
+- Internal link counting does not make HTTP requests.
+- Broken link and redirect scans run independently to reduce load.
+- External link checking is optional and disabled by default.
+- Automatic broken link checks via WordPress Cron are optional and disabled by default.
+- Redirect report groups repeated URLs and shows total usage plus unique source count.
+- AJAX batch scanning keeps long scans out of a single heavy request.
+- Report and temporary scan data are stored with autoload disabled.
+- Legacy option migration from the former `ic-link-sayici` / `maya_ils_*` naming.
 
-Sıralama önceliği gelen iç link sayısıdır. Gelen iç link sayısı eşitse link veren tekil içerik sayısı, ardından çıkan iç link sayısı ve başlık dikkate alınır.
+## Reports
 
-## Sayım Mantığı
+### Internal Link Counts
 
-Eklenti varsayılan olarak yayınlanmış `post` ve `page` içeriklerini tarar. İçerikteki `<a href="...">` bağlantıları okunur ve bağlantı aynı WordPress sitesindeki yayınlanmış bir yazı veya sayfaya denk geliyorsa iç link olarak sayılır.
+Shows each published content item with:
 
-Aynı kaynak içerikten aynı hedef içeriğe birden fazla link verilirse:
+- Content title and URL
+- Post type
+- Incoming internal link count
+- Unique source content count
+- Outgoing internal link count
+- Unique target content count
+- Edit link
 
-- Gelen iç link toplamına her link eklenir.
-- Link veren içerik sayısına aynı kaynak sadece bir kez eklenir.
-- Çıkan iç link toplamına her link eklenir.
-- Link verilen içerik sayısına aynı hedef sadece bir kez eklenir.
+Rows are sorted by the lowest incoming internal link count first, then by unique source count, outgoing link count and title.
 
-Kendi kendine verilen linkler sayılmaz.
+### Broken Links
 
-## Performans
+Checks eligible links and lists:
 
-Bu eklenti normal site ziyaretlerinde çalışmaz. Tarama yalnızca WordPress yönetim panelinde, yetkili kullanıcı `Kontrol et` düğmesine bastığında başlar.
+- Source post/page title
+- Source URL
+- Anchor text
+- URL used in the content
+- HTTP status or issue type
+- Last checked time
 
-Tarama küçük parçalar halinde yapılır. Varsayılan paket boyutu 25 içeriktir. Bu yaklaşım, özellikle paylaşımlı hostinglerde uzun süren tek bir işlem yerine daha kontrollü bir yönetim paneli işlemi sağlar.
+By default, only internal links are checked. External links are included only when the external link setting is enabled for the broken link scan.
 
-Rapor ve geçici tarama verileri WordPress seçeneklerinde autoload kapalı şekilde tutulur. Böylece normal sayfa yüklemelerinde bu veriler otomatik olarak belleğe alınmaz.
+### Redirecting Links
 
-## Sınırlamalar
+Checks eligible links and reports URLs returning:
 
-Bu eklenti editör içeriğindeki bağlantıları sayar. Aşağıdaki bağlantılar rapora dahil değildir:
+- `301 Moved Permanently`
+- `302 Found`
+- `307 Temporary Redirect`
+- `308 Permanent Redirect`
 
-- Tema şablonlarından gelen menü, header, footer veya sidebar linkleri.
-- Kısa kodların çalışma anında ürettiği linkler.
-- JavaScript ile sonradan eklenen linkler.
-- Harici sitelere verilen linkler.
-- `mailto:`, `tel:`, `sms:`, `javascript:`, `data:` ve benzeri bağlantılar.
-- Yayında olmayan taslak, özel veya çöp içerikler.
+The report shows:
 
-## Kurulum
+- URL used in content
+- First reportable redirect status code
+- Final URL after redirects
+- Number of unique source posts/pages
+- Total usage count
+- Occurrence details with source title, source URL, anchor text and used URL
 
-1. `ic-link-sayici` klasörünü `wp-content/plugins/` içine yükleyin veya ZIP dosyasını WordPress eklenti yükleyicisiyle kurun.
-2. WordPress panelinde eklentiyi etkinleştirin.
-3. Başlangıç ekranındaki `İç Link Sayıcı` kutusundan `Kontrol et` düğmesine basın.
-4. Tam rapor için Araçlar > İç Link Sayıcı sayfasını açın.
-5. Eski raporu kaldırmak için `Raporu sil` düğmesini kullanın.
+## Performance Model
 
-## Geliştirici Notları
+The plugin intentionally avoids one large "check everything" operation.
 
-Varsayılan olarak sadece `post` ve `page` türleri taranır. Özel içerik türlerini dahil etmek için:
+- The internal link tab only parses content and counts internal links.
+- The broken link tab performs HTTP checks for broken/restricted responses.
+- The redirect tab performs HTTP checks for reportable 3XX responses.
+- Manual scans run in AJAX batches of 25 content items by default.
+- Automatic scans, when enabled, only run the broken link report.
+
+Developers can adjust batch sizes with filters.
+
+## Installation
+
+1. Upload the `linkflow-auditor` folder to `wp-content/plugins/`, or install the generated ZIP through the WordPress plugin uploader.
+2. Activate **LinkFlow Auditor** in the WordPress admin.
+3. Open **Tools > LinkFlow Auditor**.
+4. Run the needed report from its own tab:
+   - Internal Link Counts
+   - Broken Links
+   - Redirecting Links
+
+## Settings
+
+The settings box controls broken link scanning:
+
+- **Check external links**: disabled by default. When off, only links pointing to the current site's host are checked.
+- **Automatic broken link checks**: disabled by default. When enabled, WordPress Cron runs the broken link scan at the selected interval.
+
+Redirect scans are manual and internal-link focused by default.
+
+## Developer Hooks
+
+Limit scanned post types:
 
 ```php
-add_filter( 'maya_ils_post_types', function () {
+add_filter( 'linkflow_auditor_post_types', function () {
 	return array( 'post', 'page', 'your_custom_post_type' );
 } );
 ```
 
-Paket boyutunu değiştirmek için:
+Change the admin AJAX batch size:
 
 ```php
-add_filter( 'maya_ils_scan_batch_size', function () {
+add_filter( 'linkflow_auditor_scan_batch_size', function () {
 	return 40;
 } );
 ```
 
-Paket boyutunu büyütmek taramayı hızlandırabilir, ancak zayıf hostinglerde yönetim panelinde zaman aşımı riskini artırabilir.
+Change the background scan batch size:
 
-## Sürüm Geçmişi
+```php
+add_filter( 'linkflow_auditor_background_scan_batch_size', function () {
+	return 40;
+} );
+```
+
+Customize HTTP request arguments:
+
+```php
+add_filter( 'linkflow_auditor_http_request_args', function ( array $args, string $url ) {
+	$args['timeout'] = 10;
+	return $args;
+}, 10, 2 );
+```
+
+## Migration Notes
+
+This plugin was renamed from the earlier local **Ic Link Sayici** build. On activation, LinkFlow Auditor copies legacy report/settings options when present:
+
+- `maya_ils_report` to `linkflow_auditor_report`
+- `maya_ils_settings` to `linkflow_auditor_settings`
+- `maya_ils_check_external_links` to `linkflow_auditor_check_external_links`
+
+The legacy scheduled hook is cleared during activation to prevent duplicate background checks.
+
+## Limitations
+
+LinkFlow Auditor reads links from editor content. It does not count or check:
+
+- Menu, header, footer or sidebar links generated by the theme.
+- Links generated only at runtime by shortcodes.
+- Links inserted by JavaScript after page load.
+- Draft, private or trashed content.
+- `mailto:`, `tel:`, `sms:`, `javascript:`, `data:` and similar non-HTTP links.
+- External links when external link checking is disabled.
+
+## Packaging
+
+Build a WordPress-installable package with the folder name `linkflow-auditor`. ZIP files, macOS metadata and Git internals should not be included in the package.
+
+## Changelog
+
+### 1.4.0
+
+- Renamed the plugin to LinkFlow Auditor.
+- Renamed the main plugin file, slug, text domain, AJAX actions, options, hooks and package folder to `linkflow-auditor` / `linkflow_auditor`.
+- Added legacy option migration from the former `maya_ils_*` option names.
+- Split scanning into three independent report tabs: internal link counts, broken links and redirecting links.
+- Kept external link checking and automatic checks disabled by default.
+- Preserved each report section when another section is rescanned.
+
+### 1.3.0
+
+- Merged automatic broken link checking, external link settings and restricted-response handling from the former broken link checker plugin.
+- Expanded default scan scope to all published public post types except attachments.
+- Added last checked time and restricted-response labels to the broken link report.
+
+### 1.2.0
+
+- Added broken link reporting.
+- Added redirecting link reporting for 301, 302, 307 and 308.
+- Added summary counters for scanned content, checked links, broken links and redirecting links.
+- Grouped redirecting links by URL/status/final URL with usage counts.
 
 ### 1.1.0
 
-- Gelen iç link ve çıkan iç link hesapları ayrıldı.
-- Link veren tekil içerik ve link verilen tekil içerik sütunları eklendi.
-- README detaylandırıldı.
+- Split incoming and outgoing internal link counts.
+- Added unique source and target counts.
+- Expanded documentation.
 
 ### 1.0.0
 
-- İlk sürüm.
+- Initial internal link count report.
