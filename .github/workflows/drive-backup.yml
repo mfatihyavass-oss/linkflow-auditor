@@ -1,0 +1,74 @@
+name: Google Drive Backup
+
+on:
+  push:
+    branches:
+      - main
+  release:
+    types:
+      - published
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * 0'
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zip rclone
+
+      - name: Build backup archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo_name="${GITHUB_REPOSITORY#*/}"
+          archive="${repo_name}-latest.zip"
+
+          mkdir -p backup-content/repository backup-content/release-assets
+          rsync -a \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='desktop-dist' \
+            --exclude='release' \
+            ./ backup-content/repository/
+
+          latest_tag="$(gh release list --limit 1 --json tagName --jq '.[0].tagName // empty' || true)"
+          if [ -n "$latest_tag" ]; then
+            gh release download "$latest_tag" --repo "$GITHUB_REPOSITORY" --dir backup-content/release-assets || true
+          fi
+
+          zip -r "$archive" backup-content
+          echo "BACKUP_ARCHIVE=$archive" >> "$GITHUB_ENV"
+          echo "REPO_NAME=$repo_name" >> "$GITHUB_ENV"
+
+      - name: Upload to Google Drive
+        env:
+          RCLONE_CONFIG_GITHUBYEDEK_TYPE: drive
+          RCLONE_CONFIG_GITHUBYEDEK_SCOPE: drive
+          RCLONE_CONFIG_GITHUBYEDEK_TOKEN: ${{ secrets.RCLONE_DRIVE_TOKEN }}
+          RCLONE_CONFIG_GITHUBYEDEK_ROOT_FOLDER_ID: ${{ secrets.GDRIVE_BACKUP_FOLDER_ID }}
+        run: |
+          set -euo pipefail
+          test -n "${RCLONE_CONFIG_GITHUBYEDEK_TOKEN:-}"
+          test -n "${RCLONE_CONFIG_GITHUBYEDEK_ROOT_FOLDER_ID:-}"
+
+          rclone mkdir "githubyedek:${REPO_NAME}"
+          rclone copyto "$BACKUP_ARCHIVE" "githubyedek:${REPO_NAME}/${REPO_NAME}-latest.zip"
+
+          rclone lsf "githubyedek:${REPO_NAME}" --files-only --include "*.zip" |
+            grep -v "^${REPO_NAME}-latest\\.zip$" |
+            while IFS= read -r old_backup; do
+              rclone deletefile "githubyedek:${REPO_NAME}/${old_backup}" --drive-use-trash=false
+            done
