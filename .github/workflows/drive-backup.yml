@@ -67,8 +67,11 @@ jobs:
           rclone mkdir "githubyedek:${REPO_NAME}"
           rclone copyto "$BACKUP_ARCHIVE" "githubyedek:${REPO_NAME}/${REPO_NAME}-latest.zip"
 
-          rclone lsf "githubyedek:${REPO_NAME}" --files-only --include "*.zip" |
-            grep -v "^${REPO_NAME}-latest\\.zip$" |
-            while IFS= read -r old_backup; do
+          old_backups="$(rclone lsf "githubyedek:${REPO_NAME}" --files-only --include "*.zip" |
+            grep -v "^${REPO_NAME}-latest\\.zip$" || true)"
+
+          if [ -n "$old_backups" ]; then
+            printf '%s\n' "$old_backups" | while IFS= read -r old_backup; do
               rclone deletefile "githubyedek:${REPO_NAME}/${old_backup}" --drive-use-trash=false
             done
+          fi
