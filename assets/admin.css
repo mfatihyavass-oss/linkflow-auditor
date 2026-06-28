@@ -237,6 +237,26 @@
 	font-size: 12px;
 }
 
+.lfa-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	align-items: center;
+}
+
+.lfa-replace-box {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	align-items: center;
+	width: 100%;
+	margin-top: 6px;
+}
+
+.lfa-replace-box .lfa-replace-input {
+	min-width: 220px;
+}
+
 @media screen and (max-width: 782px) {
 	.lfa-controls {
 		align-items: stretch;

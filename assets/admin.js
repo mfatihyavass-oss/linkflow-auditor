@@ -132,6 +132,111 @@
 		});
 	});
 
+	function lfaMessages() {
+		return (LinkFlowAuditor && LinkFlowAuditor.messages) || {};
+	}
+
+	function updateTabCount($row, scope, count) {
+		var selector = 'broken' === scope ? '[data-lfa-tab="broken"]' : '[data-lfa-tab="redirects"]';
+		var $tab = $row.closest('[data-lfa-tabs]').find(selector + ' .lfa-tab-count');
+
+		if ($tab.length && typeof count !== 'undefined' && count !== null) {
+			$tab.text(count);
+		}
+	}
+
+	function removeRow($row) {
+		var $table = $row.closest('table');
+		$row.fadeOut(200, function () {
+			$row.remove();
+
+			if ($table.find('tbody tr').length === 0) {
+				$table.closest('.lfa-table-wrap').remove();
+			}
+		});
+	}
+
+	function sendFix($button, payload) {
+		var $row = $button.closest('tr');
+		var $root = $button.closest('.lfa-tab-panel, .lfa-widget, .lfa-page');
+		var messages = lfaMessages();
+
+		$row.find('button').prop('disabled', true);
+		setMessage($root, 'remove' === payload.mode ? messages.removing : messages.fixing, false);
+
+		request($.extend({ action: 'linkflow_auditor_fix_link' }, payload)).done(function (response) {
+			var data = response && response.data ? response.data : {};
+
+			if (!response || !response.success) {
+				$row.find('button').prop('disabled', false);
+				setMessage($root, data.message || messages.error, true);
+				return;
+			}
+
+			setMessage($root, data.message || messages.done, false);
+			updateTabCount($row, payload.scope, 'broken' === payload.scope ? data.broken_count : data.redirect_count);
+			removeRow($row);
+		}).fail(function () {
+			$row.find('button').prop('disabled', false);
+			setMessage($root, messages.error, true);
+		});
+	}
+
+	$(document).on('click', '.lfa-fix-remove', function () {
+		var $button = $(this);
+		var messages = lfaMessages();
+
+		if (!window.confirm(messages.confirmRemove)) {
+			return;
+		}
+
+		sendFix($button, {
+			scope: $button.data('scope'),
+			source_id: $button.data('source-id'),
+			raw_url: $button.data('raw-url'),
+			mode: 'remove'
+		});
+	});
+
+	$(document).on('click', '.lfa-fix-replace-toggle', function () {
+		var $actions = $(this).closest('.lfa-actions');
+		$actions.find('.lfa-replace-box').prop('hidden', false).find('.lfa-replace-input').trigger('focus');
+	});
+
+	$(document).on('click', '.lfa-fix-cancel', function () {
+		var $box = $(this).closest('.lfa-replace-box');
+		$box.prop('hidden', true).find('.lfa-replace-input').val('');
+	});
+
+	$(document).on('click', '.lfa-fix-replace', function () {
+		var $button = $(this);
+		var messages = lfaMessages();
+		var newUrl;
+
+		if ($button.data('direct')) {
+			newUrl = $button.data('new-url');
+
+			if (!window.confirm(messages.confirmReplace)) {
+				return;
+			}
+		} else {
+			newUrl = ($button.closest('.lfa-actions').find('.lfa-replace-input').val() || '').trim();
+
+			if (!newUrl) {
+				window.alert(messages.emptyUrl);
+				return;
+			}
+		}
+
+		sendFix($button, {
+			scope: $button.data('scope'),
+			source_id: $button.data('source-id'),
+			raw_url: $button.data('raw-url'),
+			mode: 'replace',
+			new_url: newUrl
+		});
+	});
+
 	function activateTab($tabs, tabName) {
 		var $targetPanel = $tabs.find('[data-lfa-panel="' + tabName + '"]');
 

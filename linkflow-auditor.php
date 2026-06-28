@@ -3,7 +3,7 @@
  * Plugin Name: LinkFlow Auditor
  * Plugin URI: https://github.com/mfatihyavass-oss/linkflow-auditor
  * Description: Audits internal links, broken links and redirecting links from the WordPress admin.
- * Version: 1.4.0
+ * Version: 1.5.0
  * Author: mfatihyavass-oss
  * Author URI: https://github.com/mfatihyavass-oss
  * Requires at least: 6.4
@@ -23,7 +23,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 	 * Main plugin class.
 	 */
 	final class LinkFlow_Auditor {
-			private const VERSION               = '1.4.0';
+			private const VERSION               = '1.5.0';
 			private const REPORT_OPTION         = 'linkflow_auditor_report';
 			private const SETTINGS_OPTION       = 'linkflow_auditor_settings';
 			private const CHECK_EXTERNAL_OPTION = 'linkflow_auditor_check_external_links';
@@ -80,6 +80,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				add_action( 'wp_ajax_linkflow_auditor_start_scan', array( $this, 'ajax_start_scan' ) );
 				add_action( 'wp_ajax_linkflow_auditor_scan_batch', array( $this, 'ajax_scan_batch' ) );
 				add_action( 'wp_ajax_linkflow_auditor_clear_report', array( $this, 'ajax_clear_report' ) );
+			add_action( 'wp_ajax_linkflow_auditor_fix_link', array( $this, 'ajax_fix_link' ) );
 				add_action( 'admin_post_linkflow_auditor_save_settings', array( $this, 'handle_save_settings' ) );
 			}
 
@@ -260,6 +261,11 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 						'done'     => esc_html__( 'Rapor hazır. Sayfa yenileniyor...', 'linkflow-auditor' ),
 						'clearing' => esc_html__( 'Rapor siliniyor...', 'linkflow-auditor' ),
 						'error'    => esc_html__( 'İşlem tamamlanamadı. Lütfen tekrar deneyin.', 'linkflow-auditor' ),
+						'fixing'   => esc_html__( 'Link güncelleniyor...', 'linkflow-auditor' ),
+						'removing' => esc_html__( 'Link kaldırılıyor...', 'linkflow-auditor' ),
+						'confirmRemove'  => esc_html__( 'Bu link kaldırılsın mı? (Bağlantı silinir, metin yazıda kalır.)', 'linkflow-auditor' ),
+						'confirmReplace' => esc_html__( 'Bu link yönlendirilen adresle değiştirilsin mi?', 'linkflow-auditor' ),
+						'emptyUrl'       => esc_html__( 'Lütfen yeni bir URL girin.', 'linkflow-auditor' ),
 					),
 				)
 			);
@@ -680,9 +686,11 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				echo '<th>' . esc_html__( 'Verilen URL', 'linkflow-auditor' ) . '</th>';
 				echo '<th>' . esc_html__( 'Durum', 'linkflow-auditor' ) . '</th>';
 				echo '<th>' . esc_html__( 'Son Kontrol', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'İşlem', 'linkflow-auditor' ) . '</th>';
 				echo '</tr></thead><tbody>';
 
 				foreach ( $links as $link ) {
+					$source_id    = isset( $link['source_id'] ) ? (int) $link['source_id'] : 0;
 					$source_title = (string) ( $link['source_title'] ?? '' );
 					$source_url   = (string) ( $link['source_url'] ?? '' );
 					$anchor_text  = (string) ( $link['anchor_text'] ?? '' );
@@ -708,6 +716,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					}
 					echo '</td>';
 					echo '<td>' . esc_html( $this->get_last_checked_label( $last_checked ) ) . '</td>';
+					echo '<td>' . $this->render_link_actions( 'broken', $source_id, $raw_url, '' ) . '</td>';
 					echo '</tr>';
 				}
 
@@ -728,80 +737,113 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				echo '<div class="lfa-table-wrap">';
 				echo '<table class="widefat striped lfa-status-table lfa-redirect-table">';
 				echo '<thead><tr>';
+				echo '<th>' . esc_html__( 'Kaynak Yazı/Sayfa', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'Kaynak URL', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'Anchor Text', 'linkflow-auditor' ) . '</th>';
 				echo '<th>' . esc_html__( 'Verilen URL', 'linkflow-auditor' ) . '</th>';
 				echo '<th>' . esc_html__( 'Durum', 'linkflow-auditor' ) . '</th>';
-				echo '<th>' . esc_html__( 'Son URL', 'linkflow-auditor' ) . '</th>';
-				echo '<th>' . esc_html__( 'Farklı yazı', 'linkflow-auditor' ) . '</th>';
-				echo '<th>' . esc_html__( 'Toplam kullanım', 'linkflow-auditor' ) . '</th>';
-				echo '<th>' . esc_html__( 'Detay', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'Yönlendirilen (Son) URL', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'İşlem', 'linkflow-auditor' ) . '</th>';
 				echo '</tr></thead><tbody>';
 
 				foreach ( $links as $link ) {
-					$url          = (string) ( $link['url'] ?? '' );
-					$final_url    = (string) ( $link['final_url'] ?? '' );
-					$status_code  = isset( $link['status_code'] ) ? (int) $link['status_code'] : 0;
-					$source_count = isset( $link['source_count'] ) ? (int) $link['source_count'] : 0;
-					$usage_count  = isset( $link['usage_count'] ) ? (int) $link['usage_count'] : count( (array) ( $link['occurrences'] ?? array() ) );
-					$occurrences  = array_values( array_filter( (array) ( $link['occurrences'] ?? array() ), 'is_array' ) );
+					$url         = (string) ( $link['url'] ?? '' );
+					$final_url   = (string) ( $link['final_url'] ?? '' );
+					$status_code = isset( $link['status_code'] ) ? (int) $link['status_code'] : 0;
+					$occurrences = array_values( array_filter( (array) ( $link['occurrences'] ?? array() ), 'is_array' ) );
 
-					echo '<tr>';
-					echo '<td>' . $this->render_url_cell( $url ) . '</td>';
-					echo '<td><strong>' . esc_html( (string) $status_code ) . '</strong></td>';
-					echo '<td>' . $this->render_url_cell( $final_url ) . '</td>';
-					echo '<td>' . esc_html( number_format_i18n( $source_count ) ) . '</td>';
-					echo '<td><strong>' . esc_html( number_format_i18n( $usage_count ) ) . '</strong></td>';
-					echo '<td>';
-					$this->render_redirect_occurrences( $occurrences );
-					echo '</td>';
-					echo '</tr>';
+					if ( empty( $occurrences ) ) {
+						continue;
+					}
+
+					foreach ( $occurrences as $occurrence ) {
+						$source_id    = isset( $occurrence['source_id'] ) ? (int) $occurrence['source_id'] : 0;
+						$source_title = (string) ( $occurrence['source_title'] ?? '' );
+						$source_url   = (string) ( $occurrence['source_url'] ?? '' );
+						$anchor_text  = (string) ( $occurrence['anchor_text'] ?? '' );
+						$raw_url      = (string) ( $occurrence['raw_url'] ?? '' );
+						$checked_url  = (string) ( $occurrence['checked_url'] ?? $url );
+
+						if ( '' === trim( $source_title ) ) {
+							$source_title = __( '(Başlıksız)', 'linkflow-auditor' );
+						}
+
+						echo '<tr>';
+						echo '<td><strong>' . esc_html( $source_title ) . '</strong></td>';
+						echo '<td>' . $this->render_url_cell( $source_url ) . '</td>';
+						echo '<td>' . ( '' !== $anchor_text ? esc_html( $anchor_text ) : '&mdash;' ) . '</td>';
+						echo '<td>' . $this->render_url_cell( $checked_url, $raw_url ) . '</td>';
+						echo '<td><strong>' . esc_html( (string) $status_code ) . '</strong></td>';
+						echo '<td>' . $this->render_url_cell( $final_url ) . '</td>';
+						echo '<td>' . $this->render_link_actions( 'redirect', $source_id, $raw_url, $final_url ) . '</td>';
+						echo '</tr>';
+					}
 				}
 
 				echo '</tbody></table></div>';
 			}
 
 			/**
-			 * Render redirect occurrence details for one grouped URL.
+			 * Render the remove/replace action controls for a link row.
 			 *
-			 * @param array<int,array<string,mixed>> $occurrences Occurrence rows.
+			 * @param string $scope     Either 'broken' or 'redirect'.
+			 * @param int    $source_id Source post ID.
+			 * @param string $raw_url   Exact href as it appears in the post content.
+			 * @param string $final_url Redirect destination (used for the direct redirect replace).
 			 */
-			private function render_redirect_occurrences( array $occurrences ): void {
-				if ( empty( $occurrences ) ) {
-					echo '&mdash;';
-					return;
+			private function render_link_actions( string $scope, int $source_id, string $raw_url, string $final_url ): string {
+				if ( $source_id <= 0 || '' === $raw_url ) {
+					return '&mdash;';
 				}
 
-				printf(
-					'<details class="lfa-details"><summary>%s</summary>',
-					esc_html__( 'Kullanımları göster', 'linkflow-auditor' )
+				$data_attrs = sprintf(
+					' data-scope="%s" data-source-id="%d" data-raw-url="%s"',
+					esc_attr( $scope ),
+					$source_id,
+					esc_attr( $raw_url )
 				);
-				echo '<table class="widefat lfa-occurrence-table">';
-				echo '<thead><tr>';
-				echo '<th>' . esc_html__( 'Kaynak Yazı/Sayfa', 'linkflow-auditor' ) . '</th>';
-				echo '<th>' . esc_html__( 'Kaynak URL', 'linkflow-auditor' ) . '</th>';
-				echo '<th>' . esc_html__( 'Anchor Text', 'linkflow-auditor' ) . '</th>';
-				echo '<th>' . esc_html__( 'Yazıda Kullanılan URL', 'linkflow-auditor' ) . '</th>';
-				echo '</tr></thead><tbody>';
 
-				foreach ( $occurrences as $occurrence ) {
-					$source_title = (string) ( $occurrence['source_title'] ?? '' );
-					$source_url   = (string) ( $occurrence['source_url'] ?? '' );
-					$anchor_text  = (string) ( $occurrence['anchor_text'] ?? '' );
-					$raw_url      = (string) ( $occurrence['raw_url'] ?? '' );
-					$checked_url  = (string) ( $occurrence['checked_url'] ?? '' );
+				$html  = '<div class="lfa-actions">';
+				$html .= sprintf(
+					'<button type="button" class="button button-small lfa-fix-remove"%s>%s</button> ',
+					$data_attrs,
+					esc_html__( 'Kaldır', 'linkflow-auditor' )
+				);
 
-					if ( '' === trim( $source_title ) ) {
-						$source_title = __( '(Başlıksız)', 'linkflow-auditor' );
-					}
-
-					echo '<tr>';
-					echo '<td><strong>' . esc_html( $source_title ) . '</strong></td>';
-					echo '<td>' . $this->render_url_cell( $source_url ) . '</td>';
-					echo '<td>' . ( '' !== $anchor_text ? esc_html( $anchor_text ) : '&mdash;' ) . '</td>';
-					echo '<td>' . $this->render_url_cell( $checked_url, $raw_url ) . '</td>';
-					echo '</tr>';
+				if ( 'redirect' === $scope && '' !== $final_url ) {
+					// Redirect rows replace the old URL directly with the resolved final URL.
+					$html .= sprintf(
+						'<button type="button" class="button button-small button-primary lfa-fix-replace"%s data-new-url="%s" data-direct="1">%s</button>',
+						$data_attrs,
+						esc_attr( $final_url ),
+						esc_html__( 'Değiştir', 'linkflow-auditor' )
+					);
+				} else {
+					// Broken rows open an inline box so a new URL can be pasted.
+					$html .= sprintf(
+						'<button type="button" class="button button-small button-primary lfa-fix-replace-toggle">%s</button>',
+						esc_html__( 'Değiştir', 'linkflow-auditor' )
+					);
+					$html .= '<div class="lfa-replace-box" hidden>';
+					$html .= sprintf(
+						'<input type="url" class="lfa-replace-input regular-text" placeholder="%s"> ',
+						esc_attr__( 'https://yeni-link-adresi', 'linkflow-auditor' )
+					);
+					$html .= sprintf(
+						'<button type="button" class="button button-small button-primary lfa-fix-replace"%s>%s</button> ',
+						$data_attrs,
+						esc_html__( 'Değiştir', 'linkflow-auditor' )
+					);
+					$html .= sprintf(
+						'<button type="button" class="button button-small lfa-fix-cancel">%s</button>',
+						esc_html__( 'İptal', 'linkflow-auditor' )
+					);
+					$html .= '</div>';
 				}
 
-				echo '</tbody></table></details>';
+				$html .= '</div>';
+
+				return $html;
 			}
 
 			/**
@@ -1153,6 +1195,285 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				array(
 					'message' => esc_html__( 'Rapor silindi.', 'linkflow-auditor' ),
 				)
+			);
+		}
+
+		/**
+		 * Remove or replace a single link inside a post and refresh the saved report.
+		 */
+		public function ajax_fix_link(): void {
+			$this->verify_ajax_request();
+
+			$scope     = isset( $_POST['scope'] ) ? sanitize_key( wp_unslash( $_POST['scope'] ) ) : '';
+			$source_id = isset( $_POST['source_id'] ) ? absint( wp_unslash( $_POST['source_id'] ) ) : 0;
+			$mode      = isset( $_POST['mode'] ) ? sanitize_key( wp_unslash( $_POST['mode'] ) ) : '';
+			$raw_url   = isset( $_POST['raw_url'] ) ? trim( (string) wp_unslash( $_POST['raw_url'] ) ) : '';
+			$new_url   = isset( $_POST['new_url'] ) ? trim( esc_url_raw( (string) wp_unslash( $_POST['new_url'] ) ) ) : '';
+
+			if ( ! in_array( $scope, array( self::SCAN_MODE_BROKEN, self::SCAN_MODE_REDIRECT ), true ) ) {
+				wp_send_json_error( array( 'message' => esc_html__( 'Geçersiz istek.', 'linkflow-auditor' ) ), 400 );
+			}
+
+			if ( ! in_array( $mode, array( 'remove', 'replace' ), true ) ) {
+				wp_send_json_error( array( 'message' => esc_html__( 'Geçersiz işlem.', 'linkflow-auditor' ) ), 400 );
+			}
+
+			if ( $source_id <= 0 || '' === $raw_url ) {
+				wp_send_json_error( array( 'message' => esc_html__( 'Link bilgisi eksik.', 'linkflow-auditor' ) ), 400 );
+			}
+
+			if ( ! current_user_can( 'edit_post', $source_id ) ) {
+				wp_send_json_error( array( 'message' => esc_html__( 'Bu yazıyı düzenleme yetkiniz yok.', 'linkflow-auditor' ) ), 403 );
+			}
+
+			if ( 'replace' === $mode ) {
+				if ( '' === $new_url ) {
+					wp_send_json_error( array( 'message' => esc_html__( 'Lütfen geçerli bir URL girin.', 'linkflow-auditor' ) ), 400 );
+				}
+
+				$check = $this->request_http_status( $new_url );
+				$code  = isset( $check['status_code'] ) ? (int) $check['status_code'] : 0;
+
+				if ( '' !== (string) ( $check['error'] ?? '' ) || $code >= 400 || 0 === $code ) {
+					wp_send_json_error(
+						array(
+							'message' => sprintf(
+								/* translators: %s: HTTP status or error detail. */
+								esc_html__( 'Yeni URL doğrulanamadı (%s). Lütfen kontrol edip tekrar deneyin.', 'linkflow-auditor' ),
+								'' !== (string) ( $check['error'] ?? '' ) ? esc_html( (string) $check['error'] ) : (string) $code
+							),
+						),
+						400
+					);
+				}
+			}
+
+			$changed = $this->modify_post_links( $source_id, $raw_url, $mode, $new_url );
+
+			if ( is_wp_error( $changed ) ) {
+				wp_send_json_error( array( 'message' => $changed->get_error_message() ), 400 );
+			}
+
+			if ( $changed < 1 ) {
+				wp_send_json_error( array( 'message' => esc_html__( 'Link yazı içinde bulunamadı. Rapor güncel olmayabilir.', 'linkflow-auditor' ) ), 404 );
+			}
+
+			$counts = $this->update_report_after_fix( $scope, $source_id, $raw_url );
+
+			wp_send_json_success(
+				array(
+					'message'        => 'remove' === $mode
+						? esc_html__( 'Link kaldırıldı.', 'linkflow-auditor' )
+						: esc_html__( 'Link güncellendi.', 'linkflow-auditor' ),
+					'broken_count'   => $counts['broken_count'],
+					'redirect_count' => $counts['redirect_count'],
+				)
+			);
+		}
+
+		/**
+		 * Replace or unwrap every anchor in a post whose href matches the given URL.
+		 *
+		 * @param int    $post_id Post to edit.
+		 * @param string $raw_url Decoded href to match.
+		 * @param string $mode    Either 'remove' or 'replace'.
+		 * @param string $new_url Replacement URL (for 'replace').
+		 * @return int|\WP_Error Number of anchors changed, or error.
+		 */
+		private function modify_post_links( int $post_id, string $raw_url, string $mode, string $new_url ) {
+			$post = get_post( $post_id );
+
+			if ( ! $post instanceof WP_Post ) {
+				return new WP_Error( 'lfa_no_post', esc_html__( 'Yazı bulunamadı.', 'linkflow-auditor' ) );
+			}
+
+			$content = (string) $post->post_content;
+
+			if ( '' === trim( $content ) || ! class_exists( 'DOMDocument' ) ) {
+				return new WP_Error( 'lfa_no_content', esc_html__( 'Yazı içeriği düzenlenemiyor.', 'linkflow-auditor' ) );
+			}
+
+			$charset  = get_bloginfo( 'charset' ) ?: 'UTF-8';
+			$document = new DOMDocument();
+			$previous = libxml_use_internal_errors( true );
+			$loaded   = $document->loadHTML(
+				'<!DOCTYPE html><html><head><meta http-equiv="Content-Type" content="text/html; charset=' . htmlspecialchars( $charset, ENT_QUOTES, 'UTF-8' ) . '"></head><body>' . $content . '</body></html>',
+				LIBXML_NOWARNING | LIBXML_NOERROR
+			);
+
+			libxml_clear_errors();
+			libxml_use_internal_errors( $previous );
+
+			if ( ! $loaded ) {
+				return new WP_Error( 'lfa_parse', esc_html__( 'Yazı içeriği işlenemedi.', 'linkflow-auditor' ) );
+			}
+
+			$target  = $this->normalize_match_url( $raw_url );
+			$changed = 0;
+			$nodes   = array();
+
+			foreach ( $document->getElementsByTagName( 'a' ) as $node ) {
+				$nodes[] = $node;
+			}
+
+			foreach ( $nodes as $node ) {
+				$href = (string) $node->getAttribute( 'href' );
+
+				if ( '' === $href || $this->normalize_match_url( $href ) !== $target ) {
+					continue;
+				}
+
+				if ( 'replace' === $mode ) {
+					$node->setAttribute( 'href', $new_url );
+				} else {
+					// Unwrap: keep the visible text/children, drop the anchor tag.
+					while ( $node->firstChild ) {
+						$node->parentNode->insertBefore( $node->firstChild, $node );
+					}
+					$node->parentNode->removeChild( $node );
+				}
+
+				++$changed;
+			}
+
+			if ( $changed < 1 ) {
+				return 0;
+			}
+
+			$body     = $document->getElementsByTagName( 'body' )->item( 0 );
+			$new_html = '';
+
+			if ( $body ) {
+				foreach ( $body->childNodes as $child ) {
+					$new_html .= $document->saveHTML( $child );
+				}
+			}
+
+			$result = wp_update_post(
+				array(
+					'ID'           => $post_id,
+					'post_content' => $new_html,
+				),
+				true
+			);
+
+			if ( is_wp_error( $result ) ) {
+				return $result;
+			}
+
+			return $changed;
+		}
+
+		/**
+		 * Normalize a URL for loose comparison (entity-decode + trim).
+		 */
+		private function normalize_match_url( string $url ): string {
+			$url = html_entity_decode( $url, ENT_QUOTES, get_bloginfo( 'charset' ) ?: 'UTF-8' );
+
+			return trim( $url );
+		}
+
+		/**
+		 * Drop fixed occurrences from the saved report and return refreshed counts.
+		 *
+		 * @param string $scope     Either 'broken' or 'redirect'.
+		 * @param int    $source_id Source post ID.
+		 * @param string $raw_url   Matched href.
+		 * @return array{broken_count:int,redirect_count:int}
+		 */
+		private function update_report_after_fix( string $scope, int $source_id, string $raw_url ): array {
+			$report = $this->get_report();
+			$target = $this->normalize_match_url( $raw_url );
+
+			if ( self::SCAN_MODE_BROKEN === $scope ) {
+				$kept            = array();
+				$removed_broken  = 0;
+				$removed_warning = 0;
+
+				foreach ( (array) ( $report['broken_links'] ?? array() ) as $link ) {
+					if ( ! is_array( $link ) ) {
+						continue;
+					}
+
+					$match = (int) ( $link['source_id'] ?? 0 ) === $source_id
+						&& $this->normalize_match_url( (string) ( $link['raw_url'] ?? '' ) ) === $target;
+
+					if ( $match ) {
+						if ( 'warning' === (string) ( $link['status'] ?? 'broken' ) ) {
+							++$removed_warning;
+						} else {
+							++$removed_broken;
+						}
+						continue;
+					}
+
+					$kept[] = $link;
+				}
+
+				$report['broken_links']       = array_values( $kept );
+				$report['broken_link_count']  = max( 0, (int) ( $report['broken_link_count'] ?? 0 ) - $removed_broken );
+				$report['warning_link_count'] = max( 0, (int) ( $report['warning_link_count'] ?? 0 ) - $removed_warning );
+			} else {
+				$groups          = array();
+				$removed_usage   = 0;
+
+				foreach ( (array) ( $report['redirect_links'] ?? array() ) as $group ) {
+					if ( ! is_array( $group ) ) {
+						continue;
+					}
+
+					$occurrences = array();
+
+					foreach ( (array) ( $group['occurrences'] ?? array() ) as $occurrence ) {
+						if ( ! is_array( $occurrence ) ) {
+							continue;
+						}
+
+						$match = (int) ( $occurrence['source_id'] ?? 0 ) === $source_id
+							&& $this->normalize_match_url( (string) ( $occurrence['raw_url'] ?? '' ) ) === $target;
+
+						if ( $match ) {
+							++$removed_usage;
+							continue;
+						}
+
+						$occurrences[] = $occurrence;
+					}
+
+					if ( empty( $occurrences ) ) {
+						continue;
+					}
+
+					$source_ids            = array();
+					foreach ( $occurrences as $occurrence ) {
+						$oid = (int) ( $occurrence['source_id'] ?? 0 );
+						if ( $oid > 0 ) {
+							$source_ids[ $oid ] = true;
+						}
+					}
+
+					$group['occurrences']  = array_values( $occurrences );
+					$group['usage_count']  = count( $occurrences );
+					$group['source_count'] = count( $source_ids );
+					$groups[]              = $group;
+				}
+
+				$report['redirect_links']      = array_values( $groups );
+				$report['redirect_link_count'] = max( 0, (int) ( $report['redirect_link_count'] ?? 0 ) - $removed_usage );
+			}
+
+			$this->update_nonautoload_option( self::REPORT_OPTION, $report );
+
+			$broken_count   = isset( $report['broken_link_count'] )
+				? (int) $report['broken_link_count']
+				: count( (array) ( $report['broken_links'] ?? array() ) );
+			$redirect_count = isset( $report['redirect_link_count'] )
+				? (int) $report['redirect_link_count']
+				: $this->count_redirect_usage( (array) ( $report['redirect_links'] ?? array() ) );
+
+			return array(
+				'broken_count'   => $broken_count,
+				'redirect_count' => $redirect_count,
 			);
 		}
 
