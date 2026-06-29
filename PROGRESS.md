@@ -8,7 +8,7 @@ Current package target:
 
 - Plugin name: LinkFlow Auditor
 - Slug: `linkflow-auditor`
-- Version: `1.4.0`
+- Version: `1.5.1`
 - Main file: `linkflow-auditor.php`
 - Text domain: `linkflow-auditor`
 - GitHub repository target: `mfatihyavass-oss/linkflow-auditor`
@@ -35,6 +35,8 @@ Current package target:
 - Preserved existing report sections when another section is rescanned.
 - Updated `README.md` for GitHub/project use.
 - Updated `readme.txt` for WordPress plugin directory style documentation.
+- Added manual link remove/replace actions for broken and redirect reports.
+- Preserved the active report tab after manual scans and report clearing.
 
 ## Validation Checklist
 
@@ -45,6 +47,26 @@ Run before every release package:
 - `node --check assets/admin.js`
 - Build a ZIP with a top-level `linkflow-auditor` folder.
 - Confirm the ZIP does not include old ZIP files, `.git`, `.DS_Store` or local temporary files.
+
+## Release Notes For 1.5.1
+
+Version `1.5.1` is a tab-state fix release.
+
+Key changes:
+
+- Manual scans keep the user on the report tab that started the scan.
+- Broken link and redirect scans reopen the matching report tab after the page refreshes.
+- Clearing a report also keeps the current tab selected after refresh.
+
+## Release Notes For 1.5.0
+
+Version `1.5.0` added manual link fixing actions.
+
+Key changes:
+
+- Added remove/replace actions for broken link rows.
+- Added direct replacement of redirect links with the final URL.
+- Updated report counts after individual link fixes.
 
 ## Release Notes For 1.4.0
 

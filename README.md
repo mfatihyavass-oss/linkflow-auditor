@@ -6,7 +6,7 @@ The plugin is designed for content-heavy WordPress sites where SEO teams need to
 
 ## Status
 
-- Current version: `1.4.0`
+- Current version: `1.5.1`
 - WordPress minimum: `6.4`
 - PHP minimum: `7.4`
 - Main plugin file: `linkflow-auditor.php`
@@ -24,6 +24,7 @@ The plugin is designed for content-heavy WordPress sites where SEO teams need to
 - External link checking is optional and disabled by default.
 - Automatic broken link checks via WordPress Cron are optional and disabled by default.
 - Redirect report groups repeated URLs and shows total usage plus unique source count.
+- Broken and redirect report rows include manual remove/replace actions.
 - AJAX batch scanning keeps long scans out of a single heavy request.
 - Report and temporary scan data are stored with autoload disabled.
 - Legacy option migration from the former `ic-link-sayici` / `maya_ils_*` naming.
@@ -54,6 +55,7 @@ Checks eligible links and lists:
 - URL used in the content
 - HTTP status or issue type
 - Last checked time
+- Manual actions to remove the link or replace it with a new URL
 
 By default, only internal links are checked. External links are included only when the external link setting is enabled for the broken link scan.
 
@@ -74,6 +76,7 @@ The report shows:
 - Number of unique source posts/pages
 - Total usage count
 - Occurrence details with source title, source URL, anchor text and used URL
+- Manual actions to remove the link or replace it with the final redirected URL
 
 ## Performance Model
 
@@ -167,6 +170,17 @@ LinkFlow Auditor reads links from editor content. It does not count or check:
 Build a WordPress-installable package with the folder name `linkflow-auditor`. ZIP files, macOS metadata and Git internals should not be included in the package.
 
 ## Changelog
+
+### 1.5.1
+
+- Preserved the active report tab after a manual scan or report clear.
+- Broken link and redirect scans now reopen their own report tabs after completion instead of returning to the internal link count tab.
+
+### 1.5.0
+
+- Added manual remove/replace actions for broken link rows.
+- Added direct replacement of redirecting URLs with their final destination.
+- Updated report counts after a link is fixed without requiring a full rescan.
 
 ### 1.4.0
 

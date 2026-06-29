@@ -32,7 +32,7 @@
 		});
 	}
 
-	function scanBatch($root, token) {
+	function scanBatch($root, token, tabName) {
 		request({
 			action: 'linkflow_auditor_scan_batch',
 			token: token
@@ -54,13 +54,13 @@
 			if (data.done) {
 				setMessage($root, LinkFlowAuditor.messages.done, false);
 				window.setTimeout(function () {
-					window.location.reload();
+					reloadToTab($root, tabName);
 				}, 700);
 				return;
 			}
 
 			window.setTimeout(function () {
-				scanBatch($root, token);
+				scanBatch($root, token, tabName);
 			}, 120);
 		}).fail(function () {
 			setBusy($root, false);
@@ -72,8 +72,10 @@
 		var $button = $(this);
 		var $root = $button.closest('.lfa-tab-panel, .lfa-widget, .lfa-page');
 		var scanMode = $button.data('scan-mode') || 'internal';
+		var tabName = scanModeToTab(scanMode);
 		var checkExternalLinks = $root.find('.lfa-check-external input').prop('checked') ? '1' : '0';
 
+		rememberTab($root, tabName);
 		setBusy($root, true);
 		setMessage($root, LinkFlowAuditor.messages.starting, false);
 		setProgress($root, 0, '0%');
@@ -95,13 +97,13 @@
 				setProgress($root, 100, '100%');
 				setMessage($root, LinkFlowAuditor.messages.done, false);
 				window.setTimeout(function () {
-					window.location.reload();
+					reloadToTab($root, tabName);
 				}, 700);
 				return;
 			}
 
 			setMessage($root, LinkFlowAuditor.messages.scanning, false);
-			scanBatch($root, data.token);
+			scanBatch($root, data.token, tabName);
 		}).fail(function () {
 			setBusy($root, false);
 			setMessage($root, LinkFlowAuditor.messages.error, true);
@@ -110,6 +112,7 @@
 
 	$(document).on('click', '.lfa-clear', function () {
 		var $root = $(this).closest('.lfa-tab-panel, .lfa-widget, .lfa-page');
+		var tabName = $root.data('lfa-panel') || getActiveTab($root);
 
 		setBusy($root, true);
 		setMessage($root, LinkFlowAuditor.messages.clearing, false);
@@ -125,7 +128,7 @@
 				return;
 			}
 
-			window.location.reload();
+			reloadToTab($root, tabName);
 		}).fail(function () {
 			setBusy($root, false);
 			setMessage($root, LinkFlowAuditor.messages.error, true);
@@ -237,7 +240,72 @@
 		});
 	});
 
-	function activateTab($tabs, tabName) {
+	function scanModeToTab(scanMode) {
+		return 'redirect' === scanMode ? 'redirects' : scanMode;
+	}
+
+	function getTabHash($tabs, tabName) {
+		var id = $tabs.find('[data-lfa-panel="' + tabName + '"]').attr('id');
+
+		return id ? '#' + id : '';
+	}
+
+	function rememberTab($root, tabName) {
+		var $tabs = $root.is('[data-lfa-tabs]') ? $root : $root.closest('[data-lfa-tabs]');
+		var hash = $tabs.length ? getTabHash($tabs, tabName) : '';
+
+		if (!hash) {
+			return;
+		}
+
+		if (window.history && window.history.replaceState) {
+			window.history.replaceState(null, '', window.location.pathname + window.location.search + hash);
+			return;
+		}
+
+		window.location.hash = hash;
+	}
+
+	function reloadToTab($root, tabName) {
+		rememberTab($root, tabName);
+		window.location.reload();
+	}
+
+	function getActiveTab($root) {
+		var $tabs = $root.closest('[data-lfa-tabs]');
+		var $active = $tabs.find('[data-lfa-tab].nav-tab-active');
+
+		return $active.data('lfa-tab') || 'internal';
+	}
+
+	function getHashTab($tabs) {
+		var hash = window.location.hash ? window.location.hash.substring(1) : '';
+		var $panel;
+		var $tab;
+
+		if (!hash) {
+			return '';
+		}
+
+		$panel = $tabs.find('[data-lfa-panel]').filter(function () {
+			return this.id === hash;
+		});
+
+		if ($panel.length) {
+			return $panel.data('lfa-panel');
+		}
+
+		$tab = $tabs.find('[data-lfa-tab]').filter(function () {
+			return $(this).data('lfa-tab') === hash;
+		});
+		if ($tab.length) {
+			return $tab.data('lfa-tab');
+		}
+
+		return '';
+	}
+
+	function activateTab($tabs, tabName, updateHash) {
 		var $targetPanel = $tabs.find('[data-lfa-panel="' + tabName + '"]');
 
 		if (!$targetPanel.length) {
@@ -248,6 +316,10 @@
 		$tabs.find('[data-lfa-tab="' + tabName + '"]').addClass('nav-tab-active').attr('aria-selected', 'true');
 		$tabs.find('[data-lfa-panel]').prop('hidden', true);
 		$targetPanel.prop('hidden', false);
+
+		if (updateHash) {
+			rememberTab($tabs, tabName);
+		}
 	}
 
 	$(document).on('click', '[data-lfa-tab]', function (event) {
@@ -255,22 +327,15 @@
 		var $tabs = $tab.closest('[data-lfa-tabs]');
 
 		event.preventDefault();
-		activateTab($tabs, $tab.data('lfa-tab'));
+		activateTab($tabs, $tab.data('lfa-tab'), true);
 	});
 
 	$(function () {
 		$('[data-lfa-tabs]').each(function () {
 			var $tabs = $(this);
-			var hash = window.location.hash || '';
-			var initialTab = 'internal';
+			var initialTab = getHashTab($tabs) || 'internal';
 
-			if (hash === '#lfa-broken-links') {
-				initialTab = 'broken';
-			} else if (hash === '#lfa-redirect-links') {
-				initialTab = 'redirects';
-			}
-
-			activateTab($tabs, initialTab);
+			activateTab($tabs, initialTab, false);
 		});
 	});
 })(jQuery);
