@@ -3,7 +3,7 @@
  * Plugin Name: LinkFlow Auditor
  * Plugin URI: https://github.com/mfatihyavass-oss/linkflow-auditor
  * Description: Audits internal links, broken links and redirecting links from the WordPress admin.
- * Version: 1.7.0
+ * Version: 1.8.0
  * Author: mfatihyavass-oss
  * Author URI: https://github.com/mfatihyavass-oss
  * Requires at least: 6.4
@@ -23,7 +23,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 	 * Main plugin class.
 	 */
 	final class LinkFlow_Auditor {
-			private const VERSION               = '1.7.0';
+			private const VERSION               = '1.8.0';
 			private const REPORT_OPTION         = 'linkflow_auditor_report';
 			private const SETTINGS_OPTION       = 'linkflow_auditor_settings';
 			private const CHECK_EXTERNAL_OPTION = 'linkflow_auditor_check_external_links';
@@ -49,6 +49,9 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 			private const REDIRECT_STATUS_CODES = array( 301, 302, 307, 308 );
 			private const HEALTH_LIST_CAP       = 500;
 			private const HEALTH_DISPLAY_CAP    = 100;
+			private const EXTERNAL_LIST_CAP     = 2000;
+			private const SCAN_MODE_EXTERNAL    = 'external';
+			private const SCAN_MODE_INTERNAL_FIX = 'internal';
 
 		/**
 		 * Singleton instance.
@@ -734,7 +737,14 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				echo '<tr class="lfa-detail-row" id="' . esc_attr( $detail_id ) . '" hidden>';
 				echo '<td colspan="7">';
 				echo '<div class="lfa-detail">';
-				echo '<div class="lfa-detail-head">' . esc_html__( 'Bu içeriğe link veren yazılar', 'linkflow-auditor' ) . '</div>';
+				echo '<div class="lfa-detail-head">';
+				echo '<span>' . esc_html__( 'Bu içeriğe link veren yazılar', 'linkflow-auditor' ) . '</span>';
+				printf(
+					'<button type="button" class="lfa-detail-close" data-detail-target="%s">%s</button>',
+					esc_attr( $detail_id ),
+					esc_html__( '✕ Kapat', 'linkflow-auditor' )
+				);
+				echo '</div>';
 				echo '<table class="lfa-detail-table"><thead><tr>';
 				echo '<th>' . esc_html__( 'Kaynak yazı', 'linkflow-auditor' ) . '</th>';
 				echo '<th>' . esc_html__( 'Anchor text', 'linkflow-auditor' ) . '</th>';
@@ -748,8 +758,10 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 						$src_title = __( '(Başlıksız)', 'linkflow-auditor' );
 					}
 
+					$src_id    = isset( $detail['id'] ) ? (int) $detail['id'] : 0;
 					$src_url   = (string) ( $detail['url'] ?? '' );
 					$edit_url  = (string) ( $detail['edit_url'] ?? '' );
+					$raw_url   = (string) ( $detail['raw_url'] ?? '' );
 					$count     = isset( $detail['count'] ) ? (int) $detail['count'] : 0;
 					$anchors   = array_values( array_filter( (array) ( $detail['anchors'] ?? array() ), 'is_string' ) );
 
@@ -790,9 +802,9 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 							esc_url( $edit_url ),
 							esc_html__( 'Düzenle', 'linkflow-auditor' )
 						);
-					} else {
-						echo '&mdash;';
 					}
+					// Remove/replace the link inside the source post.
+					echo $this->render_link_actions( self::SCAN_MODE_INTERNAL_FIX, $src_id, $raw_url, '' );
 					echo '</td>';
 					echo '</tr>';
 				}
@@ -841,6 +853,12 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					esc_html__( 'Yönlendirmeli Linkler', 'linkflow-auditor' ),
 					esc_html( number_format_i18n( $redirect_count ) )
 				);
+				$external_total = isset( $report['external_total'] ) ? (int) $report['external_total'] : count( (array) ( $report['external_links'] ?? array() ) );
+				printf(
+					'<a href="#lfa-external-links" class="nav-tab" data-lfa-tab="external">%s <span class="lfa-tab-count">%s</span></a>',
+					esc_html__( 'Dış Linkler', 'linkflow-auditor' ),
+					esc_html( number_format_i18n( $external_total ) )
+				);
 				echo '</nav>';
 
 				echo '<div id="lfa-internal-links" class="lfa-tab-panel" data-lfa-panel="internal">';
@@ -877,6 +895,10 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				} else {
 					echo '<p class="lfa-empty">' . esc_html__( 'Henüz yönlendirmeli link kontrolü yapılmadı.', 'linkflow-auditor' ) . '</p>';
 				}
+				echo '</div>';
+
+				echo '<div id="lfa-external-links" class="lfa-tab-panel" data-lfa-panel="external" hidden>';
+				$this->render_external_links_tab( $report, $has_internal );
 				echo '</div>';
 				echo '</div>';
 			}
@@ -1195,6 +1217,88 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				$edit_url = get_edit_post_link( $post_id, '' );
 
 				return $this->health_edit_cell( (string) ( $edit_url ?: '' ) );
+			}
+
+			/**
+			 * Render the External Links tab.
+			 *
+			 * @param array<string,mixed> $report       Existing report.
+			 * @param bool                $has_internal Whether an internal scan has run.
+			 */
+			private function render_external_links_tab( array $report, bool $has_internal ): void {
+				echo '<div class="lfa-controls">';
+				printf(
+					'<button type="button" class="button button-primary lfa-start" data-scan-mode="%s" data-result-tab="external">%s</button>',
+					esc_attr( self::SCAN_MODE_INTERNAL ),
+					esc_html__( 'Dış linkleri tara', 'linkflow-auditor' )
+				);
+				echo '<span class="spinner lfa-spinner" aria-hidden="true"></span>';
+				echo '</div>';
+				echo '<div class="lfa-progress" hidden><div class="lfa-progress-bar"><span></span></div><strong>0%</strong></div>';
+				echo '<div class="lfa-message" aria-live="polite"></div>';
+				echo '<p class="description">' . esc_html__( 'Dış link listesi iç link taramasıyla birlikte üretilir. Sayfalarınızda ve yazılarınızda başka sitelere verilen linkleri gösterir.', 'linkflow-auditor' ) . '</p>';
+
+				$links = array_values( array_filter( (array) ( $report['external_links'] ?? array() ), 'is_array' ) );
+				$total = isset( $report['external_total'] ) ? (int) $report['external_total'] : count( $links );
+
+				if ( ! $has_internal ) {
+					echo '<p class="lfa-empty">' . esc_html__( 'Dış link listesi için önce taramayı çalıştırın.', 'linkflow-auditor' ) . '</p>';
+					return;
+				}
+
+				if ( empty( $links ) ) {
+					echo '<p class="lfa-empty">' . esc_html__( 'Dış link bulunamadı.', 'linkflow-auditor' ) . '</p>';
+					return;
+				}
+
+				printf(
+					'<div class="lfa-external-toolbar"><input type="search" class="lfa-external-search regular-text" placeholder="%s"><span class="lfa-external-summary">%s <strong>%s</strong></span></div>',
+					esc_attr__( 'URL veya bağlantı metninde ara…', 'linkflow-auditor' ),
+					esc_html__( 'Toplam dış link:', 'linkflow-auditor' ),
+					esc_html( number_format_i18n( $total ) )
+				);
+
+				$display_cap = self::HEALTH_DISPLAY_CAP * 5;
+				$shown       = array_slice( $links, 0, $display_cap );
+
+				echo '<div class="lfa-table-wrap"><table class="widefat striped lfa-status-table lfa-external-table"><thead><tr>';
+				echo '<th>' . esc_html__( 'Kaynak sayfa/yazı', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'Bağlantı metni', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'Dış URL', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'İşlem', 'linkflow-auditor' ) . '</th>';
+				echo '</tr></thead><tbody>';
+
+				foreach ( $shown as $link ) {
+					$source_id    = isset( $link['source_id'] ) ? (int) $link['source_id'] : 0;
+					$source_title = (string) ( $link['source_title'] ?? '' );
+					$source_url   = (string) ( $link['source_url'] ?? '' );
+					$href         = (string) ( $link['href'] ?? '' );
+					$anchor       = (string) ( $link['anchor'] ?? '' );
+					$search_key   = $this->mb_lower( $anchor . ' ' . $href . ' ' . $source_title );
+
+					printf( '<tr class="lfa-external-row" data-search="%s">', esc_attr( $search_key ) );
+					echo '<td>' . $this->health_title_cell( $source_title, $source_url ) . '</td>';
+					echo '<td>' . $this->health_anchor_cell( $anchor ) . '</td>';
+					echo '<td>' . $this->render_url_cell( $href ) . '</td>';
+					echo '<td>' . $this->render_link_actions( self::SCAN_MODE_EXTERNAL, $source_id, $href, '' ) . '</td>';
+					echo '</tr>';
+				}
+
+				echo '</tbody></table></div>';
+
+				if ( count( $links ) > $display_cap ) {
+					printf(
+						'<p class="lfa-health-more">%s</p>',
+						esc_html(
+							sprintf(
+								/* translators: 1: shown count, 2: remaining count. */
+								__( 'İlk %1$s dış link gösteriliyor; %2$s tane daha var.', 'linkflow-auditor' ),
+								number_format_i18n( $display_cap ),
+								number_format_i18n( count( $links ) - $display_cap )
+							)
+						)
+					);
+				}
 			}
 
 			/**
@@ -1547,6 +1651,8 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					'health_insecure_total' => 0,
 					'health_weak_anchor'    => array(),
 					'health_weak_total'     => 0,
+					'external_links'        => array(),
+					'external_total'        => 0,
 					'check_external_links' => $check_external,
 					'found_links'          => 0,
 					'checked_links'        => 0,
@@ -1693,6 +1799,8 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					'health_insecure_total' => 0,
 					'health_weak_anchor'    => array(),
 					'health_weak_total'     => 0,
+					'external_links'        => array(),
+					'external_total'        => 0,
 					'check_external_links' => $check_external,
 					'found_links'          => 0,
 					'checked_links'        => 0,
@@ -1751,7 +1859,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 			$raw_url   = isset( $_POST['raw_url'] ) ? trim( (string) wp_unslash( $_POST['raw_url'] ) ) : '';
 			$new_url   = isset( $_POST['new_url'] ) ? trim( esc_url_raw( (string) wp_unslash( $_POST['new_url'] ) ) ) : '';
 
-			if ( ! in_array( $scope, array( self::SCAN_MODE_BROKEN, self::SCAN_MODE_REDIRECT ), true ) ) {
+			if ( ! in_array( $scope, array( self::SCAN_MODE_BROKEN, self::SCAN_MODE_REDIRECT, self::SCAN_MODE_EXTERNAL, self::SCAN_MODE_INTERNAL_FIX ), true ) ) {
 				wp_send_json_error( array( 'message' => esc_html__( 'Geçersiz istek.', 'linkflow-auditor' ) ), 400 );
 			}
 
@@ -1808,6 +1916,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 						: esc_html__( 'Link güncellendi.', 'linkflow-auditor' ),
 					'broken_count'   => $counts['broken_count'],
 					'redirect_count' => $counts['redirect_count'],
+					'external_count' => $counts['external_count'],
 				)
 			);
 		}
@@ -1920,11 +2029,45 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 		 * @param string $scope     Either 'broken' or 'redirect'.
 		 * @param int    $source_id Source post ID.
 		 * @param string $raw_url   Matched href.
-		 * @return array{broken_count:int,redirect_count:int}
+		 * @return array{broken_count:int,redirect_count:int,external_count:int}
 		 */
 		private function update_report_after_fix( string $scope, int $source_id, string $raw_url ): array {
 			$report = $this->get_report();
 			$target = $this->normalize_match_url( $raw_url );
+
+			if ( self::SCAN_MODE_EXTERNAL === $scope ) {
+				$kept    = array();
+				$removed = 0;
+
+				foreach ( (array) ( $report['external_links'] ?? array() ) as $link ) {
+					if ( ! is_array( $link ) ) {
+						continue;
+					}
+
+					$match = (int) ( $link['source_id'] ?? 0 ) === $source_id
+						&& $this->normalize_match_url( (string) ( $link['href'] ?? '' ) ) === $target;
+
+					if ( $match ) {
+						++$removed;
+						continue;
+					}
+
+					$kept[] = $link;
+				}
+
+				$report['external_links'] = array_values( $kept );
+				$report['external_total'] = max( 0, (int) ( $report['external_total'] ?? 0 ) - $removed );
+
+				$this->update_nonautoload_option( self::REPORT_OPTION, $report );
+
+				return $this->fix_result_counts( $report );
+			}
+
+			if ( self::SCAN_MODE_INTERNAL_FIX === $scope ) {
+				// The internal count report is recomputed on the next scan; nothing to
+				// prune here. Just report the current counts back to the UI.
+				return $this->fix_result_counts( $report );
+			}
 
 			if ( self::SCAN_MODE_BROKEN === $scope ) {
 				$kept            = array();
@@ -2005,16 +2148,30 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 
 			$this->update_nonautoload_option( self::REPORT_OPTION, $report );
 
+			return $this->fix_result_counts( $report );
+		}
+
+		/**
+		 * Collect the counts returned to the UI after a link fix.
+		 *
+		 * @param array<string,mixed> $report Current report.
+		 * @return array{broken_count:int,redirect_count:int,external_count:int}
+		 */
+		private function fix_result_counts( array $report ): array {
 			$broken_count   = isset( $report['broken_link_count'] )
 				? (int) $report['broken_link_count']
 				: count( (array) ( $report['broken_links'] ?? array() ) );
 			$redirect_count = isset( $report['redirect_link_count'] )
 				? (int) $report['redirect_link_count']
 				: $this->count_redirect_usage( (array) ( $report['redirect_links'] ?? array() ) );
+			$external_count = isset( $report['external_total'] )
+				? (int) $report['external_total']
+				: count( (array) ( $report['external_links'] ?? array() ) );
 
 			return array(
 				'broken_count'   => $broken_count,
 				'redirect_count' => $redirect_count,
+				'external_count' => $external_count,
 			);
 		}
 
@@ -2344,7 +2501,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 							}
 
 							++$state['incoming_links'][ $target_id ];
-							$this->record_incoming_detail( $state, $target_id, $source_id, $anchor_text );
+							$this->record_incoming_detail( $state, $target_id, $source_id, $anchor_text, $href );
 							$linked_targets[ $target_id ] = true;
 
 							// One anchor is one outgoing link, even if the URL is shared
@@ -2412,8 +2569,9 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 			 * @param int                 $target_id   Linked target post ID.
 			 * @param int                 $source_id   Linking source post ID.
 			 * @param string              $anchor_text Anchor text of the link.
+			 * @param string              $href        Raw href as written in the source content.
 			 */
-			private function record_incoming_detail( array &$state, int $target_id, int $source_id, string $anchor_text ): void {
+			private function record_incoming_detail( array &$state, int $target_id, int $source_id, string $anchor_text, string $href ): void {
 				if ( ! isset( $state['incoming_details'][ $target_id ] ) ) {
 					$state['incoming_details'][ $target_id ] = array();
 				}
@@ -2422,10 +2580,16 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					$state['incoming_details'][ $target_id ][ $source_id ] = array(
 						'count'   => 0,
 						'anchors' => array(),
+						'raw_url' => '',
 					);
 				}
 
 				++$state['incoming_details'][ $target_id ][ $source_id ]['count'];
+
+				// Remember the first real href so the remove/replace action can match it.
+				if ( '' === (string) ( $state['incoming_details'][ $target_id ][ $source_id ]['raw_url'] ?? '' ) && '' !== trim( $href ) ) {
+					$state['incoming_details'][ $target_id ][ $source_id ]['raw_url'] = trim( $href );
+				}
 
 				$anchor_text = trim( $anchor_text );
 				if (
@@ -2455,6 +2619,27 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 			 */
 			private function collect_link_health( array &$state, WP_Post $post, string $source_url, string $href, string $anchor_text, array $target_ids, string $home_host, bool $home_is_https ): void {
 				$trimmed_href = trim( $href );
+
+				// External link: an absolute http/https link to a different host. Kept
+				// for the "Dış Linkler" tab with its anchor text and source.
+				$scheme = strtolower( (string) ( wp_parse_url( $trimmed_href, PHP_URL_SCHEME ) ?: '' ) );
+				if ( in_array( $scheme, array( 'http', 'https' ), true ) ) {
+					$link_host = $this->normalize_host( (string) ( wp_parse_url( $trimmed_href, PHP_URL_HOST ) ?: '' ) );
+
+					if ( '' !== $link_host && '' !== $home_host && $link_host !== $home_host ) {
+						if ( (int) ( $state['external_total'] ?? 0 ) < self::EXTERNAL_LIST_CAP ) {
+							$state['external_links'][] = array(
+								'source_id'    => (int) $post->ID,
+								'source_title' => $this->get_source_title( $post ),
+								'source_url'   => $source_url,
+								'href'         => $trimmed_href,
+								'anchor'       => $anchor_text,
+							);
+						}
+
+						$state['external_total'] = (int) ( $state['external_total'] ?? 0 ) + 1;
+					}
+				}
 
 				// Insecure internal link: an absolute http:// URL on the site's own host
 				// while the site itself is served over https (mixed content).
@@ -3385,6 +3570,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					'edit_url' => (string) ( $meta['edit_url'] ?? '' ),
 					'count'    => isset( $info['count'] ) ? (int) $info['count'] : 0,
 					'anchors'  => array_values( array_filter( (array) ( $info['anchors'] ?? array() ), 'is_string' ) ),
+					'raw_url'  => (string) ( $info['raw_url'] ?? '' ),
 				);
 			}
 
@@ -3551,6 +3737,8 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					$report['total_sources']       = count( (array) ( $state['source_ids'] ?? array() ) );
 					$report['rows']                = $rows;
 					$report['health']              = $this->build_health_report( $state, $rows );
+					$report['external_links']      = array_values( array_filter( (array) ( $state['external_links'] ?? array() ), 'is_array' ) );
+					$report['external_total']      = (int) ( $state['external_total'] ?? 0 );
 
 					return $report;
 				}

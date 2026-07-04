@@ -8,7 +8,7 @@ Current package target:
 
 - Plugin name: LinkFlow Auditor
 - Slug: `linkflow-auditor`
-- Version: `1.7.0`
+- Version: `1.8.0`
 - Main file: `linkflow-auditor.php`
 - Text domain: `linkflow-auditor`
 - GitHub repository target: `mfatihyavass-oss/linkflow-auditor`
@@ -47,6 +47,17 @@ Run before every release package:
 - `node --check assets/admin.js`
 - Build a ZIP with a top-level `linkflow-auditor` folder.
 - Confirm the ZIP does not include old ZIP files, `.git`, `.DS_Store` or local temporary files.
+
+## Release Notes For 1.8.0
+
+Version `1.8.0` adds the External Links tab and link-fix actions to the internal detail panel.
+
+Key changes:
+
+- New "Dış Linkler" tab collected during the internal scan (`collect_link_health` also gathers external links); table shows source, anchor text and target URL with remove/replace actions and a client-side search.
+- Incoming-links detail panel now stores the raw href per source (`record_incoming_detail`) and renders remove/replace actions (scope `internal`) plus an explicit close button.
+- `ajax_fix_link` accepts `external` and `internal` scopes; `update_report_after_fix` prunes the external list on removal and returns `external_count` via the shared `fix_result_counts` helper.
+- JS: detail close handler, scope-aware tab-count updates, external search filter.
 
 ## Release Notes For 1.7.0
 

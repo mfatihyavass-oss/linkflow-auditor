@@ -16,6 +16,7 @@ The plugin is designed for content-heavy WordPress sites where SEO teams need to
 ## Features
 
 - Internal link count report for published public post types.
+- External links report: every outbound link with its anchor text and target URL, plus manual remove/replace.
 - Link Health report: duplicate permalinks, orphan content, dead-end content, insecure `http://` internal links and weak/empty anchor text.
 - Broken link report for 404, 410, other 4XX/5XX responses and restricted 401/403 responses.
 - Redirect report for 301, 302, 307 and 308 links.
@@ -181,6 +182,12 @@ LinkFlow Auditor reads links from editor content. It does not count or check:
 Build a WordPress-installable package with the folder name `linkflow-auditor`. ZIP files, macOS metadata and Git internals should not be included in the package.
 
 ## Changelog
+
+### 1.8.0
+
+- Added a **Dış Linkler (External Links)** tab: lists every external link found in posts/pages with its anchor text and target URL, a live search box, and per-row **remove** / **replace** (change the target URL) actions.
+- Added **remove/replace** actions inside the internal "who links here" detail panel, so an internal link can be unlinked or repointed directly from the linking post.
+- Added an explicit **close** button to the incoming-links detail panel (the expand arrow still toggles open/closed).
 
 ### 1.7.0
 

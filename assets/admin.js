@@ -140,7 +140,17 @@
 	}
 
 	function updateTabCount($row, scope, count) {
-		var selector = 'broken' === scope ? '[data-lfa-tab="broken"]' : '[data-lfa-tab="redirects"]';
+		var selectors = {
+			broken: '[data-lfa-tab="broken"]',
+			redirect: '[data-lfa-tab="redirects"]',
+			external: '[data-lfa-tab="external"]'
+		};
+		var selector = selectors[scope];
+
+		if (!selector) {
+			return;
+		}
+
 		var $tab = $row.closest('[data-lfa-tabs]').find(selector + ' .lfa-tab-count');
 
 		if ($tab.length && typeof count !== 'undefined' && count !== null) {
@@ -177,7 +187,13 @@
 			}
 
 			setMessage($root, data.message || messages.done, false);
-			updateTabCount($row, payload.scope, 'broken' === payload.scope ? data.broken_count : data.redirect_count);
+
+			var counts = {
+				broken: data.broken_count,
+				redirect: data.redirect_count,
+				external: data.external_count
+			};
+			updateTabCount($row, payload.scope, counts[payload.scope]);
 			removeRow($row);
 		}).fail(function () {
 			$row.find('button').prop('disabled', false);
@@ -355,6 +371,15 @@
 		$detail.prop('hidden', expanded);
 	});
 
+	// Explicit "close" button inside an expanded detail panel.
+	$(document).on('click', '.lfa-detail-close', function () {
+		var targetId = $(this).data('detail-target');
+		var $detail = targetId ? $('#' + targetId) : $(this).closest('.lfa-detail-row');
+
+		$detail.prop('hidden', true);
+		$('[data-detail-target="' + targetId + '"].lfa-count-toggle').attr('aria-expanded', 'false');
+	});
+
 	/* ---------- Internal link filtering + report + CSV export ---------- */
 
 	function parseBound(value) {
@@ -464,6 +489,18 @@
 
 		return text;
 	}
+
+	/* ---------- External links search ---------- */
+
+	$(document).on('input', '.lfa-external-search', function () {
+		var query = ($(this).val() || '').trim().toLowerCase();
+		var $panel = $(this).closest('.lfa-tab-panel');
+
+		$panel.find('tr.lfa-external-row').each(function () {
+			var haystack = $(this).attr('data-search') || '';
+			$(this).toggle(!query || haystack.indexOf(query) !== -1);
+		});
+	});
 
 	$(document).on('click', '.lfa-export-csv', function () {
 		var $panel = $(this).closest('.lfa-tab-panel');

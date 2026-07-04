@@ -519,10 +519,48 @@
 }
 
 .lfa-detail-head {
+	align-items: center;
 	color: var(--lfa-ink);
+	display: flex;
 	font-size: 13px;
 	font-weight: 700;
+	gap: 10px;
+	justify-content: space-between;
 	margin-bottom: 8px;
+}
+
+.lfa-detail-close {
+	background: var(--lfa-surface);
+	border: 1px solid var(--lfa-line);
+	border-radius: 8px;
+	color: var(--lfa-muted);
+	cursor: pointer;
+	font-size: 12px;
+	font-weight: 600;
+	padding: 4px 10px;
+}
+
+.lfa-detail-close:hover {
+	border-color: var(--lfa-danger);
+	color: var(--lfa-danger);
+}
+
+.lfa-external-toolbar {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+	justify-content: space-between;
+	margin: 10px 0;
+}
+
+.lfa-external-summary {
+	color: var(--lfa-muted);
+	font-size: 13px;
+}
+
+.lfa-external-table td {
+	vertical-align: top;
 }
 
 .lfa-detail-table {
