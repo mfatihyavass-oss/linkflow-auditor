@@ -448,6 +448,18 @@
 	white-space: nowrap;
 }
 
+.lfa-dupe-badge {
+	background: var(--lfa-warning-soft);
+	border: 1px solid #fcd34d;
+	border-radius: 6px;
+	color: var(--lfa-warning);
+	display: inline-block;
+	font-size: 11px;
+	font-weight: 600;
+	margin-top: 4px;
+	padding: 2px 8px;
+}
+
 .lfa-count-badge {
 	background: #ecfdf5;
 	border-radius: 999px;

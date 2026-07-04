@@ -8,7 +8,7 @@ Current package target:
 
 - Plugin name: LinkFlow Auditor
 - Slug: `linkflow-auditor`
-- Version: `1.6.0`
+- Version: `1.6.1`
 - Main file: `linkflow-auditor.php`
 - Text domain: `linkflow-auditor`
 - GitHub repository target: `mfatihyavass-oss/linkflow-auditor`
@@ -47,6 +47,17 @@ Run before every release package:
 - `node --check assets/admin.js`
 - Build a ZIP with a top-level `linkflow-auditor` folder.
 - Confirm the ZIP does not include old ZIP files, `.git`, `.DS_Store` or local temporary files.
+
+## Release Notes For 1.6.1
+
+Version `1.6.1` fixes the duplicate-permalink incoming-link bug.
+
+Key changes:
+
+- `build_target_index` no longer deletes a URL lookup key when two published items share the same permalink path; `url_index` now maps each key to a list of target IDs.
+- `resolve_internal_href` returns an array of target IDs; incoming links are attributed to every content item at a shared URL, while outgoing is counted once per anchor.
+- Targets sharing a permalink are flagged with `shared_url` and rendered with a warning badge so the underlying duplicate can be merged/redirected.
+- Root cause found via a user report CSV: pillar pages (`cekismeli-bosanma-davasi`, `anlasmali-bosanma-davasi`) each had a post and a page at the same URL, so every incoming link resolved to nothing and showed 0.
 
 ## Release Notes For 1.6.0
 

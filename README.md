@@ -171,6 +171,11 @@ Build a WordPress-installable package with the folder name `linkflow-auditor`. Z
 
 ## Changelog
 
+### 1.6.1
+
+- Fixed a counting bug where two published items sharing the same permalink (for example a post and a page with the same slug) caused **all** incoming links to that URL to be reported as zero. The colliding URL was previously dropped from the internal lookup; incoming links are now attributed to every content item at that URL.
+- Added a **"Aynı URL'yi paylaşan içerik"** warning badge on affected rows so duplicate-permalink content can be found and fixed (delete one and 301-redirect it).
+
 ### 1.6.0
 
 - Reworked the internal link report around **unique linking pages** as the trusted "incoming link" metric, with total link occurrences kept as a secondary column.

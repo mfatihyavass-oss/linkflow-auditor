@@ -3,7 +3,7 @@
  * Plugin Name: LinkFlow Auditor
  * Plugin URI: https://github.com/mfatihyavass-oss/linkflow-auditor
  * Description: Audits internal links, broken links and redirecting links from the WordPress admin.
- * Version: 1.6.0
+ * Version: 1.6.1
  * Author: mfatihyavass-oss
  * Author URI: https://github.com/mfatihyavass-oss
  * Requires at least: 6.4
@@ -23,7 +23,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 	 * Main plugin class.
 	 */
 	final class LinkFlow_Auditor {
-			private const VERSION               = '1.6.0';
+			private const VERSION               = '1.6.1';
 			private const REPORT_OPTION         = 'linkflow_auditor_report';
 			private const SETTINGS_OPTION       = 'linkflow_auditor_settings';
 			private const CHECK_EXTERNAL_OPTION = 'linkflow_auditor_check_external_links';
@@ -644,6 +644,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				$detail_rows      = $show_detail ? array_values( array_filter( (array) ( $row['incoming_detail'] ?? array() ), 'is_array' ) ) : array();
 				$has_detail       = ! empty( $detail_rows );
 				$detail_id        = 'lfa-detail-' . $detail_index;
+				$shared_url       = ! empty( $row['shared_url'] );
 				$row_class        = 0 === $incoming_sources ? ' lfa-zero' : '';
 
 				printf(
@@ -668,6 +669,14 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					);
 				} else {
 					echo '<strong>' . esc_html( $title ) . '</strong>';
+				}
+
+				if ( $shared_url ) {
+					printf(
+						'<div class="lfa-dupe-badge" title="%s">⚠ %s</div>',
+						esc_attr__( 'Aynı adresi birden fazla yayınlanmış içerik paylaşıyor. Gelen linkler her ikisine de sayılır. SEO için birini silip diğerine 301 yönlendirmesi yapın.', 'linkflow-auditor' ),
+						esc_html__( 'Aynı URL’yi paylaşan içerik', 'linkflow-auditor' )
+					);
 				}
 
 				echo '</td>';
@@ -1857,7 +1866,6 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 		private function build_target_index( array $ids ): array {
 			$targets   = array();
 			$url_index = array();
-			$key_count = array();
 
 			foreach ( $ids as $id ) {
 				$url = get_permalink( $id );
@@ -1885,18 +1893,32 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					);
 
 				foreach ( $this->get_url_index_keys( $url, $id ) as $key ) {
-					if ( ! isset( $key_count[ $key ] ) ) {
-						$key_count[ $key ] = 0;
+					if ( ! isset( $url_index[ $key ] ) ) {
+						$url_index[ $key ] = array();
 					}
 
-					++$key_count[ $key ];
-					$url_index[ $key ] = $id;
+					// Keep every target that maps to a key. When two published
+					// items share the same permalink (e.g. a post and a page with
+					// the same slug) the old code deleted the key entirely, which
+					// silently zeroed out all incoming links to that URL. Now the
+					// link is attributed to every content item sharing the URL.
+					if ( ! in_array( $id, $url_index[ $key ], true ) ) {
+						$url_index[ $key ][] = $id;
+					}
 				}
 			}
 
-			foreach ( $key_count as $key => $count ) {
-				if ( $count > 1 ) {
-					unset( $url_index[ $key ] );
+			// Flag content items whose pretty-permalink path is shared by more than
+			// one published item so the report can warn about the duplicate URL.
+			foreach ( $url_index as $key => $id_list ) {
+				if ( 0 !== strpos( $key, 'path:' ) || count( $id_list ) < 2 ) {
+					continue;
+				}
+
+				foreach ( $id_list as $shared_id ) {
+					if ( isset( $targets[ $shared_id ] ) ) {
+						$targets[ $shared_id ]['shared_url'] = true;
+					}
 				}
 			}
 
@@ -1964,24 +1986,36 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 							continue;
 						}
 
-						$target_id = $this->resolve_internal_href( $href, $url_index, (string) $source_url );
+						$target_ids = $this->resolve_internal_href( $href, $url_index, (string) $source_url );
 
-						if ( $target_id <= 0 || $target_id === $source_id ) {
-						continue;
+						if ( empty( $target_ids ) ) {
+							continue;
+						}
+
+						$counted_outgoing = false;
+
+						foreach ( $target_ids as $target_id ) {
+							if ( $target_id <= 0 || $target_id === $source_id ) {
+								continue;
+							}
+
+							if ( ! isset( $state['incoming_links'][ $target_id ] ) ) {
+								$state['incoming_links'][ $target_id ] = 0;
+							}
+
+							++$state['incoming_links'][ $target_id ];
+							$this->record_incoming_detail( $state, $target_id, $source_id, $anchor_text );
+							$linked_targets[ $target_id ] = true;
+
+							// One anchor is one outgoing link, even if the URL is shared
+							// by several targets. Attribute it to the first real target.
+							if ( ! $counted_outgoing ) {
+								++$outgoing_link_count;
+								$outgoing_target_ids[ $target_id ] = true;
+								$counted_outgoing                  = true;
+							}
+						}
 					}
-
-					if ( ! isset( $state['incoming_links'][ $target_id ] ) ) {
-						$state['incoming_links'][ $target_id ] = 0;
-					}
-
-					++$state['incoming_links'][ $target_id ];
-					++$outgoing_link_count;
-
-					$this->record_incoming_detail( $state, $target_id, $source_id, $anchor_text );
-
-					$linked_targets[ $target_id ]      = true;
-					$outgoing_target_ids[ $target_id ] = true;
-				}
 
 				foreach ( array_keys( $linked_targets ) as $target_id ) {
 					if ( ! isset( $state['incoming_sources'][ $target_id ] ) ) {
@@ -2160,33 +2194,38 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 			}
 
 		/**
-		 * Resolve a href to a target post ID when it points to this site.
+		 * Resolve a href to the target post IDs it points to on this site.
 		 *
-		 * @param string            $href Raw href.
-		 * @param array<string,int> $url_index URL lookup table.
-		 * @param string            $source_url Source permalink for relative URLs.
+		 * Returns a list because two published items can share the same permalink
+		 * (e.g. a post and a page with the same slug); the incoming link then belongs
+		 * to every content item at that URL.
+		 *
+		 * @param string                    $href Raw href.
+		 * @param array<string,array<int>>  $url_index URL lookup table.
+		 * @param string                    $source_url Source permalink for relative URLs.
+		 * @return int[]
 		 */
-			private function resolve_internal_href( string $href, array $url_index, string $source_url ): int {
+			private function resolve_internal_href( string $href, array $url_index, string $source_url ): array {
 				$href = trim( html_entity_decode( $href, ENT_QUOTES, get_bloginfo( 'charset' ) ?: 'UTF-8' ) );
 
 			if ( '' === $href || '#' === $href ) {
-				return 0;
+				return array();
 			}
 
 			if ( preg_match( '/^(mailto|tel|sms|javascript|data|blob):/i', $href ) ) {
-				return 0;
+				return array();
 			}
 
 			$parts = $this->parse_href( $href, $source_url );
 			if ( empty( $parts ) ) {
-				return 0;
+				return array();
 			}
 
 			$home_host = $this->normalize_host( (string) ( wp_parse_url( home_url( '/' ), PHP_URL_HOST ) ?: '' ) );
 			$link_host = $this->normalize_host( (string) ( $parts['host'] ?? $home_host ) );
 
 			if ( '' !== $link_host && '' !== $home_host && $link_host !== $home_host ) {
-				return 0;
+				return array();
 			}
 
 			if ( ! empty( $parts['query'] ) ) {
@@ -2197,7 +2236,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 						$key = 'query:' . $query_key . '=' . absint( $query_args[ $query_key ] );
 
 						if ( isset( $url_index[ $key ] ) ) {
-							return (int) $url_index[ $key ];
+							return array_map( 'intval', (array) $url_index[ $key ] );
 						}
 					}
 				}
@@ -2206,7 +2245,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 			$path = isset( $parts['path'] ) ? $this->normalize_path( (string) $parts['path'] ) : '/';
 			$key  = 'path:' . $path;
 
-				return isset( $url_index[ $key ] ) ? (int) $url_index[ $key ] : 0;
+				return isset( $url_index[ $key ] ) ? array_map( 'intval', (array) $url_index[ $key ] ) : array();
 			}
 
 			/**
@@ -2980,6 +3019,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 							'incoming_detail'  => $this->build_incoming_detail_rows( $state, $target_id ),
 							'outgoing_links'   => isset( $state['outgoing_links'][ $target_id ] ) ? (int) $state['outgoing_links'][ $target_id ] : 0,
 							'outgoing_targets' => isset( $state['outgoing_targets'][ $target_id ] ) ? (int) $state['outgoing_targets'][ $target_id ] : 0,
+							'shared_url'       => ! empty( $target['shared_url'] ),
 						);
 					}
 
