@@ -72,7 +72,7 @@
 		var $button = $(this);
 		var $root = $button.closest('.lfa-tab-panel, .lfa-widget, .lfa-page');
 		var scanMode = $button.data('scan-mode') || 'internal';
-		var tabName = scanModeToTab(scanMode);
+		var tabName = $button.data('result-tab') || scanModeToTab(scanMode);
 		var checkExternalLinks = $root.find('.lfa-check-external input').prop('checked') ? '1' : '0';
 
 		rememberTab($root, tabName);

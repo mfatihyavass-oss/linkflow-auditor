@@ -8,7 +8,7 @@ Current package target:
 
 - Plugin name: LinkFlow Auditor
 - Slug: `linkflow-auditor`
-- Version: `1.6.1`
+- Version: `1.7.0`
 - Main file: `linkflow-auditor.php`
 - Text domain: `linkflow-auditor`
 - GitHub repository target: `mfatihyavass-oss/linkflow-auditor`
@@ -47,6 +47,17 @@ Run before every release package:
 - `node --check assets/admin.js`
 - Build a ZIP with a top-level `linkflow-auditor` folder.
 - Confirm the ZIP does not include old ZIP files, `.git`, `.DS_Store` or local temporary files.
+
+## Release Notes For 1.7.0
+
+Version `1.7.0` adds the Link Health tab.
+
+Key changes:
+
+- New "Link Sağlığı" report tab summarising internal-linking problems from the last internal scan (no extra HTTP requests).
+- Five checks: duplicate permalinks, orphan content (0 incoming), dead-end content (0 outgoing), insecure http:// internal links (mixed content), and weak/empty anchor text.
+- `scan_posts` collects insecure links and weak anchors during the internal scan via `collect_link_health`; `build_health_report` assembles the tab data in `finalize_report`.
+- Health tab has its own scan button (`data-result-tab="health"`) that runs the internal scan and returns to the health tab.
 
 ## Release Notes For 1.6.1
 

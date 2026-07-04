@@ -219,6 +219,11 @@
 	padding: 1px 8px;
 }
 
+.lfa-tab-count--alert {
+	background: var(--lfa-danger-soft);
+	color: var(--lfa-danger);
+}
+
 .lfa-tab-panel {
 	background: var(--lfa-surface);
 	border: 1px solid var(--lfa-line);
@@ -568,6 +573,115 @@
 .lfa-anchor-empty {
 	color: var(--lfa-muted);
 	font-size: 12px;
+}
+
+/* ---------- Link Health ---------- */
+
+.lfa-health-allgood {
+	background: #ecfdf5;
+	border: 1px solid #a7f3d0;
+	border-radius: 12px;
+	color: var(--lfa-ok);
+	font-weight: 600;
+	margin-top: 14px;
+	padding: 18px;
+	text-align: center;
+}
+
+.lfa-health-card {
+	background: var(--lfa-surface);
+	border: 1px solid var(--lfa-line);
+	border-left: 5px solid var(--lfa-line);
+	border-radius: 12px;
+	margin: 14px 0;
+	padding: 16px 18px;
+}
+
+.lfa-health-card--critical {
+	border-left-color: var(--lfa-danger);
+}
+
+.lfa-health-card--warning {
+	border-left-color: #f59e0b;
+}
+
+.lfa-health-card--info {
+	border-left-color: var(--lfa-accent);
+}
+
+.lfa-health-head {
+	align-items: center;
+	display: flex;
+	gap: 10px;
+}
+
+.lfa-health-icon {
+	font-size: 18px;
+}
+
+.lfa-health-head h3 {
+	font-size: 15px;
+	margin: 0;
+}
+
+.lfa-health-badge {
+	background: var(--lfa-bg);
+	border-radius: 999px;
+	color: var(--lfa-ink);
+	font-size: 12px;
+	font-weight: 700;
+	margin-left: auto;
+	min-width: 28px;
+	padding: 2px 10px;
+	text-align: center;
+}
+
+.lfa-health-card--critical .lfa-health-badge {
+	background: var(--lfa-danger-soft);
+	color: var(--lfa-danger);
+}
+
+.lfa-health-card--warning .lfa-health-badge {
+	background: var(--lfa-warning-soft);
+	color: var(--lfa-warning);
+}
+
+.lfa-health-desc {
+	color: var(--lfa-muted);
+	font-size: 13px;
+	margin: 6px 0 12px;
+}
+
+.lfa-health-clean {
+	color: var(--lfa-ok);
+	font-weight: 600;
+	margin: 0;
+}
+
+.lfa-health-more {
+	color: var(--lfa-muted);
+	font-size: 12px;
+	margin: 8px 0 0;
+}
+
+.lfa-health-table th,
+.lfa-health-table td {
+	vertical-align: middle;
+}
+
+.lfa-dupe-group {
+	background: var(--lfa-bg);
+	border: 1px solid var(--lfa-line);
+	border-radius: 10px;
+	margin-bottom: 12px;
+	padding: 12px;
+}
+
+.lfa-dupe-url {
+	font-size: 13px;
+	font-weight: 600;
+	margin-bottom: 8px;
+	word-break: break-word;
 }
 
 /* ---------- Status tables (broken / redirect) ---------- */

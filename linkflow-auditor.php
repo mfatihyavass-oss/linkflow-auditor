@@ -3,7 +3,7 @@
  * Plugin Name: LinkFlow Auditor
  * Plugin URI: https://github.com/mfatihyavass-oss/linkflow-auditor
  * Description: Audits internal links, broken links and redirecting links from the WordPress admin.
- * Version: 1.6.1
+ * Version: 1.7.0
  * Author: mfatihyavass-oss
  * Author URI: https://github.com/mfatihyavass-oss
  * Requires at least: 6.4
@@ -23,7 +23,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 	 * Main plugin class.
 	 */
 	final class LinkFlow_Auditor {
-			private const VERSION               = '1.6.1';
+			private const VERSION               = '1.7.0';
 			private const REPORT_OPTION         = 'linkflow_auditor_report';
 			private const SETTINGS_OPTION       = 'linkflow_auditor_settings';
 			private const CHECK_EXTERNAL_OPTION = 'linkflow_auditor_check_external_links';
@@ -47,6 +47,8 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 			private const SCAN_MODE_BROKEN      = 'broken';
 			private const SCAN_MODE_REDIRECT    = 'redirect';
 			private const REDIRECT_STATUS_CODES = array( 301, 302, 307, 308 );
+			private const HEALTH_LIST_CAP       = 500;
+			private const HEALTH_DISPLAY_CAP    = 100;
 
 		/**
 		 * Singleton instance.
@@ -818,10 +820,16 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 
 				echo '<div class="lfa-tabs" data-lfa-tabs>';
 				echo '<nav class="nav-tab-wrapper lfa-tab-nav" aria-label="' . esc_attr__( 'Rapor sekmeleri', 'linkflow-auditor' ) . '">';
+				$health_count = $this->get_health_issue_count( $report );
 				printf(
 					'<a href="#lfa-internal-links" class="nav-tab nav-tab-active" data-lfa-tab="internal">%s <span class="lfa-tab-count">%s</span></a>',
 					esc_html__( 'İç Link Sayımı', 'linkflow-auditor' ),
 					esc_html( number_format_i18n( count( $rows ) ) )
+				);
+				printf(
+					'<a href="#lfa-health" class="nav-tab" data-lfa-tab="health">%s <span class="lfa-tab-count lfa-tab-count--alert">%s</span></a>',
+					esc_html__( 'Link Sağlığı', 'linkflow-auditor' ),
+					esc_html( number_format_i18n( $health_count ) )
 				);
 				printf(
 					'<a href="#lfa-broken-links" class="nav-tab" data-lfa-tab="broken">%s <span class="lfa-tab-count">%s</span></a>',
@@ -849,6 +857,10 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				}
 				echo '</div>';
 
+				echo '<div id="lfa-health" class="lfa-tab-panel" data-lfa-panel="health" hidden>';
+				$this->render_health_tab( $report, $has_internal );
+				echo '</div>';
+
 				echo '<div id="lfa-broken-links" class="lfa-tab-panel" data-lfa-panel="broken" hidden>';
 				$this->render_scan_controls( $report, self::SCAN_MODE_BROKEN, __( 'Kırık linkleri kontrol et', 'linkflow-auditor' ), true );
 				if ( $has_broken ) {
@@ -867,6 +879,322 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				}
 				echo '</div>';
 				echo '</div>';
+			}
+
+			/**
+			 * Render the Link Health tab.
+			 *
+			 * @param array<string,mixed> $report       Existing report.
+			 * @param bool                $has_internal Whether an internal scan has run.
+			 */
+			private function render_health_tab( array $report, bool $has_internal ): void {
+				echo '<div class="lfa-controls">';
+				printf(
+					'<button type="button" class="button button-primary lfa-start" data-scan-mode="%s" data-result-tab="health">%s</button>',
+					esc_attr( self::SCAN_MODE_INTERNAL ),
+					esc_html__( 'Link sağlığını kontrol et', 'linkflow-auditor' )
+				);
+				echo '<span class="spinner lfa-spinner" aria-hidden="true"></span>';
+				echo '</div>';
+				echo '<div class="lfa-progress" hidden><div class="lfa-progress-bar"><span></span></div><strong>0%</strong></div>';
+				echo '<div class="lfa-message" aria-live="polite"></div>';
+				echo '<p class="description">' . esc_html__( 'Link sağlığı verisi iç link taramasıyla birlikte üretilir; ayrı bir HTTP isteği yapmaz.', 'linkflow-auditor' ) . '</p>';
+
+				$health = (array) ( $report['health'] ?? array() );
+
+				if ( ! $has_internal || empty( $health ) ) {
+					echo '<p class="lfa-empty">' . esc_html__( 'Link sağlığı raporu için önce iç link taramasını çalıştırın.', 'linkflow-auditor' ) . '</p>';
+					return;
+				}
+
+				$total = $this->get_health_issue_count( $report );
+
+				if ( 0 === $total ) {
+					echo '<div class="lfa-health-allgood">✅ ' . esc_html__( 'Harika! Taranan içerikte bir link sağlığı sorunu bulunamadı.', 'linkflow-auditor' ) . '</div>';
+					return;
+				}
+
+				$duplicates = array_values( array_filter( (array) ( $health['duplicates'] ?? array() ), 'is_array' ) );
+				$orphans    = array_values( array_filter( (array) ( $health['orphans'] ?? array() ), 'is_array' ) );
+				$dead_ends  = array_values( array_filter( (array) ( $health['dead_ends'] ?? array() ), 'is_array' ) );
+				$insecure   = array_values( array_filter( (array) ( $health['insecure'] ?? array() ), 'is_array' ) );
+				$weak       = array_values( array_filter( (array) ( $health['weak_anchor'] ?? array() ), 'is_array' ) );
+
+				// Duplicate permalinks (critical).
+				$this->open_health_section( 'critical', '🔁', __( 'Aynı URL’yi paylaşan içerik', 'linkflow-auditor' ), count( $duplicates ), __( 'Aynı adreste birden fazla yayınlanmış içerik. Google hangisini sıralayacağını bilemez; birini silip diğerine 301 yönlendirmesi yapın.', 'linkflow-auditor' ) );
+				if ( empty( $duplicates ) ) {
+					$this->render_health_ok();
+				} else {
+					foreach ( $duplicates as $group ) {
+						$this->render_health_duplicate_group( $group );
+					}
+				}
+				echo '</section>';
+
+				// Orphan content (critical).
+				$this->open_health_section( 'critical', '🕳️', __( 'Öksüz içerik (0 gelen link)', 'linkflow-auditor' ), count( $orphans ), __( 'Sitenizde hiçbir içerikten iç link almayan yayınlar. Keşfedilmesi ve sıralanması zordur; ilgili yazılardan bunlara link verin.', 'linkflow-auditor' ) );
+				$this->render_health_item_table( $orphans );
+				echo '</section>';
+
+				// Dead-end content (warning).
+				$this->open_health_section( 'warning', '🚧', __( 'Çıkışsız içerik (0 çıkan link)', 'linkflow-auditor' ), count( $dead_ends ), __( 'Hiç iç link vermeyen “çıkmaz sokak” sayfalar. Link gücünü dağıtmaz; ilgili içeriklere bağlantı ekleyin.', 'linkflow-auditor' ) );
+				$this->render_health_item_table( $dead_ends );
+				echo '</section>';
+
+				// Insecure (mixed content) links (warning).
+				$this->open_health_section( 'warning', '🔓', __( 'Güvensiz (http) iç linkler', 'linkflow-auditor' ), (int) ( $health['insecure_total'] ?? 0 ), __( 'Siteniz https iken http:// ile yazılmış iç linkler. Gereksiz yönlendirme ve karışık içerik (mixed content) uyarısı yaratır; https:// ile değiştirin.', 'linkflow-auditor' ) );
+				$this->render_health_insecure_table( $insecure, (int) ( $health['insecure_total'] ?? 0 ) );
+				echo '</section>';
+
+				// Weak/empty anchor text (info).
+				$this->open_health_section( 'info', '🏷️', __( 'Zayıf/eksik anchor text', 'linkflow-auditor' ), (int) ( $health['weak_total'] ?? 0 ), __( '“Tıklayın”, “buraya”, “devamı” gibi genel ya da tamamen boş bağlantı metinleri. Hedefi anlatan açıklayıcı metinler kullanın.', 'linkflow-auditor' ) );
+				$this->render_health_weak_table( $weak, (int) ( $health['weak_total'] ?? 0 ) );
+				echo '</section>';
+			}
+
+			/**
+			 * Open a Link Health section wrapper.
+			 *
+			 * @param string $severity Severity slug (critical|warning|info).
+			 * @param string $icon     Emoji icon.
+			 * @param string $title    Section title.
+			 * @param int    $count    Issue count.
+			 * @param string $desc     Section description.
+			 */
+			private function open_health_section( string $severity, string $icon, string $title, int $count, string $desc ): void {
+				printf( '<section class="lfa-health-card lfa-health-card--%s">', esc_attr( $severity ) );
+				printf(
+					'<div class="lfa-health-head"><span class="lfa-health-icon" aria-hidden="true">%s</span><h3>%s</h3><span class="lfa-health-badge">%s</span></div>',
+					$icon,
+					esc_html( $title ),
+					esc_html( number_format_i18n( $count ) )
+				);
+				printf( '<p class="lfa-health-desc">%s</p>', esc_html( $desc ) );
+			}
+
+			/**
+			 * Render the "no issues here" note inside a section.
+			 */
+			private function render_health_ok(): void {
+				echo '<p class="lfa-health-clean">✓ ' . esc_html__( 'Bu kontrolde sorun bulunamadı.', 'linkflow-auditor' ) . '</p>';
+			}
+
+			/**
+			 * Render a table of simple content items (title, type, edit).
+			 *
+			 * @param array<int,array<string,mixed>> $items Items.
+			 */
+			private function render_health_item_table( array $items ): void {
+				if ( empty( $items ) ) {
+					$this->render_health_ok();
+					return;
+				}
+
+				$shown = array_slice( $items, 0, self::HEALTH_DISPLAY_CAP );
+
+				echo '<div class="lfa-table-wrap"><table class="widefat striped lfa-health-table"><thead><tr>';
+				echo '<th>' . esc_html__( 'İçerik', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'Tür', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'İşlem', 'linkflow-auditor' ) . '</th>';
+				echo '</tr></thead><tbody>';
+
+				foreach ( $shown as $item ) {
+					echo '<tr>';
+					echo '<td>' . $this->health_title_cell( (string) ( $item['title'] ?? '' ), (string) ( $item['url'] ?? '' ) ) . '</td>';
+					echo '<td><span class="lfa-type-badge">' . esc_html( $this->get_post_type_label( (string) ( $item['type'] ?? '' ) ) ) . '</span></td>';
+					echo '<td>' . $this->health_edit_cell( (string) ( $item['edit_url'] ?? '' ) ) . '</td>';
+					echo '</tr>';
+				}
+
+				echo '</tbody></table></div>';
+				$this->render_health_more_note( count( $items ) );
+			}
+
+			/**
+			 * Render one duplicate-URL group.
+			 *
+			 * @param array<string,mixed> $group Group with url + items.
+			 */
+			private function render_health_duplicate_group( array $group ): void {
+				$url   = (string) ( $group['url'] ?? '' );
+				$items = array_values( array_filter( (array) ( $group['items'] ?? array() ), 'is_array' ) );
+
+				echo '<div class="lfa-dupe-group">';
+				printf(
+					'<div class="lfa-dupe-url">%s %s</div>',
+					esc_html__( 'Adres:', 'linkflow-auditor' ),
+					$this->render_url_cell( $url )
+				);
+				echo '<table class="widefat striped lfa-health-table"><thead><tr>';
+				echo '<th>' . esc_html__( 'İçerik', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'Tür', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'İşlem', 'linkflow-auditor' ) . '</th>';
+				echo '</tr></thead><tbody>';
+
+				foreach ( $items as $item ) {
+					$title = (string) ( $item['title'] ?? '' );
+					if ( '' === trim( $title ) ) {
+						$title = __( '(Başlıksız)', 'linkflow-auditor' );
+					}
+
+					echo '<tr>';
+					echo '<td><strong>' . esc_html( $title ) . '</strong></td>';
+					echo '<td><span class="lfa-type-badge">' . esc_html( $this->get_post_type_label( (string) ( $item['type'] ?? '' ) ) ) . '</span></td>';
+					echo '<td>' . $this->health_edit_cell( (string) ( $item['edit_url'] ?? '' ) ) . '</td>';
+					echo '</tr>';
+				}
+
+				echo '</tbody></table></div>';
+			}
+
+			/**
+			 * Render the insecure-link table.
+			 *
+			 * @param array<int,array<string,mixed>> $links Insecure links.
+			 * @param int                            $total Total insecure count.
+			 */
+			private function render_health_insecure_table( array $links, int $total ): void {
+				if ( empty( $links ) ) {
+					$this->render_health_ok();
+					return;
+				}
+
+				echo '<div class="lfa-table-wrap"><table class="widefat striped lfa-health-table"><thead><tr>';
+				echo '<th>' . esc_html__( 'Kaynak içerik', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'http:// linki', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'Anchor text', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'İşlem', 'linkflow-auditor' ) . '</th>';
+				echo '</tr></thead><tbody>';
+
+				foreach ( $links as $link ) {
+					echo '<tr>';
+					echo '<td>' . $this->health_title_cell( (string) ( $link['source_title'] ?? '' ), (string) ( $link['source_url'] ?? '' ) ) . '</td>';
+					echo '<td>' . $this->render_url_cell( (string) ( $link['href'] ?? '' ) ) . '</td>';
+					echo '<td>' . $this->health_anchor_cell( (string) ( $link['anchor'] ?? '' ) ) . '</td>';
+					echo '<td>' . $this->health_edit_cell_for_post( (int) ( $link['source_id'] ?? 0 ) ) . '</td>';
+					echo '</tr>';
+				}
+
+				echo '</tbody></table></div>';
+				$this->render_health_more_note( $total );
+			}
+
+			/**
+			 * Render the weak-anchor table.
+			 *
+			 * @param array<int,array<string,mixed>> $links Weak anchor links.
+			 * @param int                            $total Total weak count.
+			 */
+			private function render_health_weak_table( array $links, int $total ): void {
+				if ( empty( $links ) ) {
+					$this->render_health_ok();
+					return;
+				}
+
+				echo '<div class="lfa-table-wrap"><table class="widefat striped lfa-health-table"><thead><tr>';
+				echo '<th>' . esc_html__( 'Kaynak içerik', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'Bağlantı metni', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'Hedef', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'İşlem', 'linkflow-auditor' ) . '</th>';
+				echo '</tr></thead><tbody>';
+
+				foreach ( $links as $link ) {
+					echo '<tr>';
+					echo '<td>' . $this->health_title_cell( (string) ( $link['source_title'] ?? '' ), (string) ( $link['source_url'] ?? '' ) ) . '</td>';
+					echo '<td>' . $this->health_anchor_cell( (string) ( $link['anchor'] ?? '' ) ) . '</td>';
+					echo '<td>' . $this->health_title_cell( (string) ( $link['target_title'] ?? '' ), (string) ( $link['target_url'] ?? '' ) ) . '</td>';
+					echo '<td>' . $this->health_edit_cell_for_post( (int) ( $link['source_id'] ?? 0 ) ) . '</td>';
+					echo '</tr>';
+				}
+
+				echo '</tbody></table></div>';
+				$this->render_health_more_note( $total );
+			}
+
+			/**
+			 * Render a "and N more" note when a list is capped.
+			 *
+			 * @param int $total Total item count.
+			 */
+			private function render_health_more_note( int $total ): void {
+				if ( $total <= self::HEALTH_DISPLAY_CAP ) {
+					return;
+				}
+
+				printf(
+					'<p class="lfa-health-more">%s</p>',
+					esc_html(
+						sprintf(
+							/* translators: %s: remaining item count. */
+							__( '… ve %s tane daha (ilk 100 gösteriliyor).', 'linkflow-auditor' ),
+							number_format_i18n( $total - self::HEALTH_DISPLAY_CAP )
+						)
+					)
+				);
+			}
+
+			/**
+			 * Render a title + URL cell for health tables.
+			 *
+			 * @param string $title Title.
+			 * @param string $url   URL.
+			 */
+			private function health_title_cell( string $title, string $url ): string {
+				if ( '' === trim( $title ) ) {
+					$title = __( '(Başlıksız)', 'linkflow-auditor' );
+				}
+
+				if ( '' === $url ) {
+					return '<strong>' . esc_html( $title ) . '</strong>';
+				}
+
+				return sprintf(
+					'<a href="%s" target="_blank" rel="noopener noreferrer"><strong>%s</strong></a><div class="lfa-url">%s</div>',
+					esc_url( $url ),
+					esc_html( $title ),
+					esc_html( $url )
+				);
+			}
+
+			/**
+			 * Render an anchor-text cell (or an empty-link marker).
+			 *
+			 * @param string $anchor Anchor text.
+			 */
+			private function health_anchor_cell( string $anchor ): string {
+				if ( '' === trim( $anchor ) ) {
+					return '<em class="lfa-anchor-empty">' . esc_html__( '(boş / görsel link)', 'linkflow-auditor' ) . '</em>';
+				}
+
+				return '<span class="lfa-anchor-chip">' . esc_html( $anchor ) . '</span>';
+			}
+
+			/**
+			 * Render an edit-link cell from a stored edit URL.
+			 *
+			 * @param string $edit_url Edit URL.
+			 */
+			private function health_edit_cell( string $edit_url ): string {
+				if ( '' === $edit_url ) {
+					return '&mdash;';
+				}
+
+				return sprintf( '<a class="lfa-edit-link" href="%s">%s</a>', esc_url( $edit_url ), esc_html__( 'Düzenle', 'linkflow-auditor' ) );
+			}
+
+			/**
+			 * Render an edit-link cell from a post ID.
+			 *
+			 * @param int $post_id Post ID.
+			 */
+			private function health_edit_cell_for_post( int $post_id ): string {
+				if ( $post_id <= 0 ) {
+					return '&mdash;';
+				}
+
+				$edit_url = get_edit_post_link( $post_id, '' );
+
+				return $this->health_edit_cell( (string) ( $edit_url ?: '' ) );
 			}
 
 			/**
@@ -1215,6 +1543,10 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					'incoming_details' => array(),
 					'outgoing_links'   => array(),
 					'outgoing_targets' => array(),
+					'health_insecure'       => array(),
+					'health_insecure_total' => 0,
+					'health_weak_anchor'    => array(),
+					'health_weak_total'     => 0,
 					'check_external_links' => $check_external,
 					'found_links'          => 0,
 					'checked_links'        => 0,
@@ -1357,6 +1689,10 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					'incoming_details'     => array(),
 					'outgoing_links'       => array(),
 					'outgoing_targets'     => array(),
+					'health_insecure'       => array(),
+					'health_insecure_total' => 0,
+					'health_weak_anchor'    => array(),
+					'health_weak_total'     => 0,
 					'check_external_links' => $check_external,
 					'found_links'          => 0,
 					'checked_links'        => 0,
@@ -1942,6 +2278,8 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 			$scan_mode             = $this->sanitize_scan_mode( (string) ( $state['scan_mode'] ?? self::SCAN_MODE_INTERNAL ) );
 			$should_check_status   = in_array( $scan_mode, array( self::SCAN_MODE_BROKEN, self::SCAN_MODE_REDIRECT ), true );
 			$should_count_internal = self::SCAN_MODE_INTERNAL === $scan_mode;
+			$home_host             = $should_count_internal ? $this->normalize_host( (string) ( wp_parse_url( home_url( '/' ), PHP_URL_HOST ) ?: '' ) ) : '';
+			$home_is_https         = $should_count_internal && 'https' === strtolower( (string) ( wp_parse_url( home_url( '/' ), PHP_URL_SCHEME ) ?: '' ) );
 
 			$posts = get_posts(
 				array(
@@ -1987,6 +2325,8 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 						}
 
 						$target_ids = $this->resolve_internal_href( $href, $url_index, (string) $source_url );
+
+						$this->collect_link_health( $state, $post, (string) $source_url, $href, $anchor_text, $target_ids, $home_host, $home_is_https );
 
 						if ( empty( $target_ids ) ) {
 							continue;
@@ -2095,6 +2435,87 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				) {
 					$state['incoming_details'][ $target_id ][ $source_id ]['anchors'][] = $anchor_text;
 				}
+			}
+
+			/**
+			 * Collect Link Health issues for a single internal-scan link.
+			 *
+			 * Runs only during the internal scan and makes no HTTP requests. Detects
+			 * insecure (mixed-content http://) links to the site's own host and weak
+			 * or empty anchor text on resolved internal content links.
+			 *
+			 * @param array<string,mixed> $state         Scan state, passed by reference.
+			 * @param WP_Post             $post          Source post.
+			 * @param string              $source_url    Source permalink.
+			 * @param string              $href          Raw href.
+			 * @param string              $anchor_text   Anchor text.
+			 * @param int[]               $target_ids    Resolved internal target IDs.
+			 * @param string              $home_host     Normalized site host.
+			 * @param bool                $home_is_https Whether the site runs on https.
+			 */
+			private function collect_link_health( array &$state, WP_Post $post, string $source_url, string $href, string $anchor_text, array $target_ids, string $home_host, bool $home_is_https ): void {
+				$trimmed_href = trim( $href );
+
+				// Insecure internal link: an absolute http:// URL on the site's own host
+				// while the site itself is served over https (mixed content).
+				if ( $home_is_https && 0 === stripos( $trimmed_href, 'http://' ) ) {
+					$link_host = $this->normalize_host( (string) ( wp_parse_url( $trimmed_href, PHP_URL_HOST ) ?: '' ) );
+
+					if ( '' !== $link_host && $link_host === $home_host ) {
+						if ( (int) ( $state['health_insecure_total'] ?? 0 ) < self::HEALTH_LIST_CAP ) {
+							$state['health_insecure'][] = array(
+								'source_id'    => (int) $post->ID,
+								'source_title' => $this->get_source_title( $post ),
+								'source_url'   => $source_url,
+								'href'         => $trimmed_href,
+								'anchor'       => $anchor_text,
+							);
+						}
+
+						$state['health_insecure_total'] = (int) ( $state['health_insecure_total'] ?? 0 ) + 1;
+					}
+				}
+
+				// Weak or empty anchor text on a resolved internal content link.
+				if ( ! empty( $target_ids ) ) {
+					$normalized = $this->mb_lower( trim( $anchor_text ) );
+
+					if ( '' === $normalized || in_array( $normalized, $this->generic_anchor_texts(), true ) ) {
+						if ( (int) ( $state['health_weak_total'] ?? 0 ) < self::HEALTH_LIST_CAP ) {
+							$target_id = (int) ( $target_ids[0] ?? 0 );
+							$targets   = (array) ( $state['targets'] ?? array() );
+
+							$state['health_weak_anchor'][] = array(
+								'source_id'    => (int) $post->ID,
+								'source_title' => $this->get_source_title( $post ),
+								'source_url'   => $source_url,
+								'target_id'    => $target_id,
+								'target_title' => (string) ( $targets[ $target_id ]['title'] ?? '' ),
+								'target_url'   => (string) ( $targets[ $target_id ]['url'] ?? '' ),
+								'anchor'       => $anchor_text,
+							);
+						}
+
+						$state['health_weak_total'] = (int) ( $state['health_weak_total'] ?? 0 ) + 1;
+					}
+				}
+			}
+
+			/**
+			 * Generic/low-value anchor phrases (already lowercased) that hurt SEO.
+			 *
+			 * @return string[]
+			 */
+			private function generic_anchor_texts(): array {
+				return array(
+					'buraya', 'buraya tıklayın', 'buraya tıklayınız', 'buraya tıkla', 'buradan',
+					'buradan ulaşın', 'buradan bakın', 'tıkla', 'tıklayın', 'tıklayınız', 'tıklayarak',
+					'link', 'linke tıkla', 'linke tıklayın', 'bağlantı', 'bu bağlantı', 'bu link',
+					'devamı', 'devamı için', 'devamını oku', 'devamını okuyun', 'devamını okumak için',
+					'oku', 'okuyun', 'daha fazla', 'daha fazlası', 'daha fazla bilgi', 'detay', 'detaylar',
+					'detaylı bilgi', 'detaylı bilgi için', 'incele', 'inceleyin', 'göz atın', 'bkz', 'bkz.',
+					'here', 'click here', 'click', 'read more', 'more', 'this', 'link here',
+				);
 			}
 
 			/**
@@ -2983,6 +3404,85 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 		}
 
 		/**
+		 * Build the Link Health summary from the finished internal scan.
+		 *
+		 * @param array<string,mixed>           $state Scan state.
+		 * @param array<int,array<string,mixed>> $rows  Finalized target rows.
+		 * @return array<string,mixed>
+		 */
+		private function build_health_report( array $state, array $rows ): array {
+			$orphans    = array();
+			$dead_ends  = array();
+			$duplicates = array();
+
+			foreach ( $rows as $row ) {
+				if ( ! is_array( $row ) ) {
+					continue;
+				}
+
+				$item = array(
+					'id'       => (int) ( $row['id'] ?? 0 ),
+					'title'    => (string) ( $row['title'] ?? '' ),
+					'type'     => (string) ( $row['type'] ?? '' ),
+					'url'      => (string) ( $row['url'] ?? '' ),
+					'edit_url' => (string) ( $row['edit_url'] ?? '' ),
+				);
+
+				if ( 0 === (int) ( $row['incoming_sources'] ?? 0 ) ) {
+					$orphans[] = $item;
+				}
+
+				if ( 0 === (int) ( $row['outgoing_targets'] ?? 0 ) ) {
+					$dead_ends[] = $item;
+				}
+
+				if ( ! empty( $row['shared_url'] ) ) {
+					$duplicates[ $item['url'] ][] = $item;
+				}
+			}
+
+			$duplicate_groups = array();
+			foreach ( $duplicates as $url => $items ) {
+				if ( count( $items ) >= 2 ) {
+					$duplicate_groups[] = array(
+						'url'   => (string) $url,
+						'items' => array_values( $items ),
+					);
+				}
+			}
+
+			return array(
+				'created_at'     => time(),
+				'duplicates'     => $duplicate_groups,
+				'orphans'        => $orphans,
+				'dead_ends'      => $dead_ends,
+				'insecure'       => array_values( array_filter( (array) ( $state['health_insecure'] ?? array() ), 'is_array' ) ),
+				'insecure_total' => (int) ( $state['health_insecure_total'] ?? 0 ),
+				'weak_anchor'    => array_values( array_filter( (array) ( $state['health_weak_anchor'] ?? array() ), 'is_array' ) ),
+				'weak_total'     => (int) ( $state['health_weak_total'] ?? 0 ),
+			);
+		}
+
+		/**
+		 * Total number of Link Health issues across all categories.
+		 *
+		 * @param array<string,mixed> $report Existing report.
+		 */
+		private function get_health_issue_count( array $report ): int {
+			$health = (array) ( $report['health'] ?? array() );
+
+			if ( empty( $health ) ) {
+				return 0;
+			}
+
+			return count( (array) ( $health['duplicates'] ?? array() ) )
+				+ count( (array) ( $health['orphans'] ?? array() ) )
+				+ count( (array) ( $health['dead_ends'] ?? array() ) )
+				+ (int) ( $health['insecure_total'] ?? 0 )
+				+ (int) ( $health['weak_total'] ?? 0 );
+		}
+
+		/**
 		 * Finalize scan state into a saved report.
 		 *
 		 * @param array<string,mixed> $state Scan state.
@@ -3050,6 +3550,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					$report['total_targets']       = count( $rows );
 					$report['total_sources']       = count( (array) ( $state['source_ids'] ?? array() ) );
 					$report['rows']                = $rows;
+					$report['health']              = $this->build_health_report( $state, $rows );
 
 					return $report;
 				}

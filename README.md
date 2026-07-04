@@ -16,6 +16,7 @@ The plugin is designed for content-heavy WordPress sites where SEO teams need to
 ## Features
 
 - Internal link count report for published public post types.
+- Link Health report: duplicate permalinks, orphan content, dead-end content, insecure `http://` internal links and weak/empty anchor text.
 - Broken link report for 404, 410, other 4XX/5XX responses and restricted 401/403 responses.
 - Redirect report for 301, 302, 307 and 308 links.
 - Separate admin tabs and separate scan buttons for each report.
@@ -30,6 +31,16 @@ The plugin is designed for content-heavy WordPress sites where SEO teams need to
 - Legacy option migration from the former `ic-link-sayici` / `maya_ils_*` naming.
 
 ## Reports
+
+### Link Health
+
+Aggregates internal-linking problems found during the internal scan (no extra HTTP requests):
+
+- **Aynı URL'yi paylaşan içerik** — two or more published items resolving to the same permalink.
+- **Öksüz içerik** — content with zero incoming internal links.
+- **Çıkışsız içerik** — content with zero outgoing internal links.
+- **Güvensiz (http) iç linkler** — `http://` links to the site's own host while the site runs on `https`.
+- **Zayıf/eksik anchor text** — generic or empty anchor text on internal links.
 
 ### Internal Link Counts
 
@@ -170,6 +181,15 @@ LinkFlow Auditor reads links from editor content. It does not count or check:
 Build a WordPress-installable package with the folder name `linkflow-auditor`. ZIP files, macOS metadata and Git internals should not be included in the package.
 
 ## Changelog
+
+### 1.7.0
+
+- Added a **Link Sağlığı (Link Health)** tab that collects internal-linking problems in one place, produced from the internal scan with no extra HTTP requests. Checks:
+  - **Aynı URL'yi paylaşan içerik** — duplicate-permalink content (post + page at one URL).
+  - **Öksüz içerik** — content with 0 incoming internal links.
+  - **Çıkışsız içerik** — content with 0 outgoing internal links.
+  - **Güvensiz (http) iç linkler** — `http://` internal links on an `https` site (mixed content).
+  - **Zayıf/eksik anchor text** — generic ("tıklayın", "buraya", "devamı") or empty/image link anchors.
 
 ### 1.6.1
 
