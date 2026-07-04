@@ -8,7 +8,7 @@ Current package target:
 
 - Plugin name: LinkFlow Auditor
 - Slug: `linkflow-auditor`
-- Version: `1.5.1`
+- Version: `1.6.0`
 - Main file: `linkflow-auditor.php`
 - Text domain: `linkflow-auditor`
 - GitHub repository target: `mfatihyavass-oss/linkflow-auditor`
@@ -47,6 +47,19 @@ Run before every release package:
 - `node --check assets/admin.js`
 - Build a ZIP with a top-level `linkflow-auditor` folder.
 - Confirm the ZIP does not include old ZIP files, `.git`, `.DS_Store` or local temporary files.
+
+## Release Notes For 1.6.0
+
+Version `1.6.0` reworks the internal link report for accuracy and reporting.
+
+Key changes:
+
+- Incoming links are now measured primarily as unique linking pages; total link occurrences remain as a secondary column.
+- Internal counting renders block/shortcode/page-builder content (`do_blocks` + `do_shortcode`) before counting; disable with the `linkflow_auditor_render_content` filter.
+- Fixed multibyte (Turkish) slug lowercasing in `normalize_path`/`normalize_host` via a new `mb_lower` helper so accented internal links match.
+- Added an auditable incoming-link detail panel (source posts, anchor text, per-source counts) stored in `incoming_detail` on each report row.
+- Added a client-side filter/report bar (presets 0, 0-3, 1-3, 4+, custom range, title search) plus UTF-8 CSV export.
+- Modernised the admin CSS and added a hero header.
 
 ## Release Notes For 1.5.1
 

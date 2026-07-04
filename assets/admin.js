@@ -338,4 +338,175 @@
 			activateTab($tabs, initialTab, false);
 		});
 	});
+
+	/* ---------- "Who links here" detail toggle ---------- */
+
+	$(document).on('click', '.lfa-count-toggle', function () {
+		var $button = $(this);
+		var targetId = $button.data('detail-target');
+		var $detail = targetId ? $('#' + targetId) : $();
+		var expanded = $button.attr('aria-expanded') === 'true';
+
+		if (!$detail.length) {
+			return;
+		}
+
+		$button.attr('aria-expanded', expanded ? 'false' : 'true');
+		$detail.prop('hidden', expanded);
+	});
+
+	/* ---------- Internal link filtering + report + CSV export ---------- */
+
+	function parseBound(value) {
+		if (value === '' || value === null || typeof value === 'undefined') {
+			return null;
+		}
+
+		var num = parseInt(value, 10);
+
+		return isNaN(num) ? null : num;
+	}
+
+	function collapseDetail($row) {
+		var $detail = $row.next('.lfa-detail-row');
+
+		if ($detail.length) {
+			$detail.prop('hidden', true);
+		}
+
+		$row.find('.lfa-count-toggle').attr('aria-expanded', 'false');
+	}
+
+	function applyFilter($panel) {
+		var $bar = $panel.find('[data-lfa-filter]');
+
+		if (!$bar.length) {
+			return;
+		}
+
+		var min = parseBound($bar.find('.lfa-filter-min').val());
+		var max = parseBound($bar.find('.lfa-filter-max').val());
+		var query = ($bar.find('.lfa-filter-search').val() || '').trim().toLowerCase();
+		var shown = 0;
+
+		$panel.find('tr.lfa-row').each(function () {
+			var $row = $(this);
+			var sources = parseInt($row.attr('data-incoming-sources'), 10) || 0;
+			var title = $row.attr('data-title') || '';
+			var visible = true;
+
+			if (min !== null && sources < min) {
+				visible = false;
+			}
+
+			if (max !== null && sources > max) {
+				visible = false;
+			}
+
+			if (query && title.indexOf(query) === -1) {
+				visible = false;
+			}
+
+			if (visible) {
+				$row.show();
+				shown += 1;
+			} else {
+				$row.hide();
+				collapseDetail($row);
+			}
+		});
+
+		$bar.find('.lfa-filter-shown').text(shown.toLocaleString());
+	}
+
+	function setActivePreset($bar, $preset) {
+		$bar.find('.lfa-preset').removeClass('is-active');
+
+		if ($preset && $preset.length) {
+			$preset.addClass('is-active');
+		}
+	}
+
+	$(document).on('click', '.lfa-preset', function () {
+		var $preset = $(this);
+		var $bar = $preset.closest('[data-lfa-filter]');
+		var $panel = $bar.closest('.lfa-tab-panel');
+
+		$bar.find('.lfa-filter-min').val($preset.data('min') === '' ? '' : $preset.data('min'));
+		$bar.find('.lfa-filter-max').val($preset.data('max') === '' ? '' : $preset.data('max'));
+		setActivePreset($bar, $preset);
+		applyFilter($panel);
+	});
+
+	$(document).on('input', '.lfa-filter-min, .lfa-filter-max, .lfa-filter-search', function () {
+		var $bar = $(this).closest('[data-lfa-filter]');
+		var $panel = $bar.closest('.lfa-tab-panel');
+
+		setActivePreset($bar, null);
+		applyFilter($panel);
+	});
+
+	$(document).on('click', '.lfa-filter-reset', function () {
+		var $bar = $(this).closest('[data-lfa-filter]');
+		var $panel = $bar.closest('.lfa-tab-panel');
+
+		$bar.find('.lfa-filter-min, .lfa-filter-max, .lfa-filter-search').val('');
+		setActivePreset($bar, $bar.find('.lfa-preset').first());
+		applyFilter($panel);
+	});
+
+	function csvCell(value) {
+		var text = (value === null || typeof value === 'undefined') ? '' : String(value);
+
+		if (/[",\n;]/.test(text)) {
+			text = '"' + text.replace(/"/g, '""') + '"';
+		}
+
+		return text;
+	}
+
+	$(document).on('click', '.lfa-export-csv', function () {
+		var $panel = $(this).closest('.lfa-tab-panel');
+		var rows = [[
+			'Başlık',
+			'URL',
+			'Tür',
+			'Gelen link (yazı)',
+			'Gelen link (toplam)',
+			'Çıkan link (hedef)',
+			'Çıkan link (toplam)'
+		]];
+
+		$panel.find('tr.lfa-row:visible').each(function () {
+			var $row = $(this);
+			var $first = $row.children('td').eq(0);
+
+			rows.push([
+				$first.find('strong').first().text().trim(),
+				$first.find('.lfa-url a').first().attr('href') || '',
+				$row.find('.lfa-type-badge').first().text().trim(),
+				parseInt($row.attr('data-incoming-sources'), 10) || 0,
+				parseInt($row.attr('data-incoming-links'), 10) || 0,
+				$row.children('td').eq(4).text().trim(),
+				$row.children('td').eq(5).text().trim()
+			]);
+		});
+
+		var csv = rows.map(function (row) {
+			return row.map(csvCell).join(',');
+		}).join('\r\n');
+
+		// Prepend BOM so Excel reads UTF-8 (Turkish characters) correctly.
+		var blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+		var url = URL.createObjectURL(blob);
+		var stamp = new Date().toISOString().slice(0, 10);
+		var $link = $('<a>', { href: url, download: 'linkflow-ic-link-raporu-' + stamp + '.csv' });
+
+		$('body').append($link);
+		$link[0].click();
+		$link.remove();
+		window.setTimeout(function () {
+			URL.revokeObjectURL(url);
+		}, 1000);
+	});
 })(jQuery);

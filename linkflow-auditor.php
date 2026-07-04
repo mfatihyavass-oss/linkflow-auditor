@@ -3,7 +3,7 @@
  * Plugin Name: LinkFlow Auditor
  * Plugin URI: https://github.com/mfatihyavass-oss/linkflow-auditor
  * Description: Audits internal links, broken links and redirecting links from the WordPress admin.
- * Version: 1.5.1
+ * Version: 1.6.0
  * Author: mfatihyavass-oss
  * Author URI: https://github.com/mfatihyavass-oss
  * Requires at least: 6.4
@@ -23,7 +23,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 	 * Main plugin class.
 	 */
 	final class LinkFlow_Auditor {
-			private const VERSION               = '1.5.1';
+			private const VERSION               = '1.6.0';
 			private const REPORT_OPTION         = 'linkflow_auditor_report';
 			private const SETTINGS_OPTION       = 'linkflow_auditor_settings';
 			private const CHECK_EXTERNAL_OPTION = 'linkflow_auditor_check_external_links';
@@ -304,7 +304,13 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				$report = $this->get_report();
 
 				echo '<div class="wrap lfa-page">';
-				echo '<h1>' . esc_html__( 'LinkFlow Auditor', 'linkflow-auditor' ) . '</h1>';
+				echo '<div class="lfa-hero">';
+				echo '<div class="lfa-hero-brand"><span class="lfa-hero-logo" aria-hidden="true">🔗</span><div>';
+				echo '<h1 class="lfa-hero-title">' . esc_html__( 'LinkFlow Auditor', 'linkflow-auditor' ) . '</h1>';
+				echo '<p class="lfa-hero-sub">' . esc_html__( 'İç linkleri, kırık linkleri ve yönlendirmeleri tek panelden denetleyin.', 'linkflow-auditor' ) . '</p>';
+				echo '</div></div>';
+				echo '<span class="lfa-hero-version">v' . esc_html( self::VERSION ) . '</span>';
+				echo '</div>';
 				$this->render_notice();
 				$this->render_settings_form();
 				$this->render_status( $report, false );
@@ -513,6 +519,83 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 		 * @param array<string,mixed> $report Existing report.
 		 * @param int                 $limit  Row limit. Zero means no limit.
 		 */
+			/**
+			 * Render the report/filter toolbar for the internal link table.
+			 *
+			 * Filtering and CSV export run client-side against the already-rendered
+			 * rows, so "0–3 link alan yazılar" style reports are instant.
+			 *
+			 * @param array<int,array<string,mixed>> $rows Internal link rows.
+			 */
+			private function render_internal_filter_bar( array $rows ): void {
+				$total = count( $rows );
+				$zero  = 0;
+				$low   = 0;
+
+				foreach ( $rows as $row ) {
+					$sources = isset( $row['incoming_sources'] ) ? (int) $row['incoming_sources'] : 0;
+					if ( 0 === $sources ) {
+						++$zero;
+					}
+					if ( $sources <= 3 ) {
+						++$low;
+					}
+				}
+
+				echo '<div class="lfa-filterbar" data-lfa-filter>';
+
+				echo '<div class="lfa-filter-presets" role="group" aria-label="' . esc_attr__( 'Hızlı raporlar', 'linkflow-auditor' ) . '">';
+				$presets = array(
+					array( '', '', __( 'Tümü', 'linkflow-auditor' ), $total ),
+					array( '0', '0', __( '0 link (hiç link almayan)', 'linkflow-auditor' ), $zero ),
+					array( '0', '3', __( '0–3 link', 'linkflow-auditor' ), $low ),
+					array( '1', '3', __( '1–3 link', 'linkflow-auditor' ), max( 0, $low - $zero ) ),
+					array( '4', '', __( '4+ link', 'linkflow-auditor' ), max( 0, $total - $low ) ),
+				);
+
+				$first = true;
+				foreach ( $presets as $preset ) {
+					printf(
+						'<button type="button" class="lfa-preset%1$s" data-min="%2$s" data-max="%3$s">%4$s <span class="lfa-preset-count">%5$s</span></button>',
+						$first ? ' is-active' : '',
+						esc_attr( $preset[0] ),
+						esc_attr( $preset[1] ),
+						esc_html( $preset[2] ),
+						esc_html( number_format_i18n( (int) $preset[3] ) )
+					);
+					$first = false;
+				}
+				echo '</div>';
+
+				echo '<div class="lfa-filter-fields">';
+				printf(
+					'<label class="lfa-filter-range">%s <input type="number" class="lfa-filter-min small-text" min="0" step="1" placeholder="min" inputmode="numeric"> <span>–</span> <input type="number" class="lfa-filter-max small-text" min="0" step="1" placeholder="max" inputmode="numeric"></label>',
+					esc_html__( 'Gelen link (yazı):', 'linkflow-auditor' )
+				);
+				printf(
+					'<input type="search" class="lfa-filter-search regular-text" placeholder="%s">',
+					esc_attr__( 'Başlıkta ara…', 'linkflow-auditor' )
+				);
+				printf(
+					'<button type="button" class="button lfa-filter-reset">%s</button>',
+					esc_html__( 'Sıfırla', 'linkflow-auditor' )
+				);
+				printf(
+					'<button type="button" class="button button-primary lfa-export-csv">%s</button>',
+					esc_html__( 'CSV indir', 'linkflow-auditor' )
+				);
+				echo '</div>';
+
+				printf(
+					'<div class="lfa-filter-summary" aria-live="polite">%s <strong class="lfa-filter-shown">%s</strong> / %s</div>',
+					esc_html__( 'Gösterilen:', 'linkflow-auditor' ),
+					esc_html( number_format_i18n( $total ) ),
+					esc_html( number_format_i18n( $total ) )
+				);
+
+				echo '</div>';
+			}
+
 			private function render_report_table( array $report, int $limit ): void {
 				$rows = $report['rows'] ?? array();
 
@@ -524,17 +607,21 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				$rows = array_slice( $rows, 0, $limit );
 			}
 
+			$show_detail = 0 === $limit;
+
 			echo '<div class="lfa-table-wrap">';
-			echo '<table class="widefat striped lfa-report-table">';
+			echo '<table class="widefat striped lfa-report-table' . ( $show_detail ? ' lfa-report-table--full' : '' ) . '">';
 			echo '<thead><tr>';
 			echo '<th>' . esc_html__( 'İçerik', 'linkflow-auditor' ) . '</th>';
 			echo '<th>' . esc_html__( 'Tür', 'linkflow-auditor' ) . '</th>';
-			echo '<th>' . esc_html__( 'Gelen iç link', 'linkflow-auditor' ) . '</th>';
-			echo '<th>' . esc_html__( 'Link veren içerik', 'linkflow-auditor' ) . '</th>';
-			echo '<th>' . esc_html__( 'Çıkan iç link', 'linkflow-auditor' ) . '</th>';
-			echo '<th>' . esc_html__( 'Link verilen içerik', 'linkflow-auditor' ) . '</th>';
+			echo '<th title="' . esc_attr__( 'Bu içeriğe link veren benzersiz yazı sayısı. Güvenilir ölçü budur.', 'linkflow-auditor' ) . '">' . esc_html__( 'Gelen link (yazı)', 'linkflow-auditor' ) . '</th>';
+			echo '<th title="' . esc_attr__( 'Toplam link geçişi. Aynı yazı birden çok kez link verirse hepsi sayılır.', 'linkflow-auditor' ) . '">' . esc_html__( 'Gelen (toplam)', 'linkflow-auditor' ) . '</th>';
+			echo '<th>' . esc_html__( 'Çıkan link (hedef)', 'linkflow-auditor' ) . '</th>';
+			echo '<th>' . esc_html__( 'Çıkan (toplam)', 'linkflow-auditor' ) . '</th>';
 			echo '<th>' . esc_html__( 'İşlem', 'linkflow-auditor' ) . '</th>';
 			echo '</tr></thead><tbody>';
+
+			$detail_index = 0;
 
 			foreach ( $rows as $row ) {
 				if ( ! is_array( $row ) ) {
@@ -554,9 +641,18 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				$incoming_sources = isset( $row['incoming_sources'] ) ? (int) $row['incoming_sources'] : (int) ( $row['unique_sources'] ?? 0 );
 				$outgoing_total   = isset( $row['outgoing_links'] ) ? (int) $row['outgoing_links'] : 0;
 				$outgoing_targets = isset( $row['outgoing_targets'] ) ? (int) $row['outgoing_targets'] : 0;
-				$row_class        = 0 === $incoming_total ? ' class="lfa-zero"' : '';
+				$detail_rows      = $show_detail ? array_values( array_filter( (array) ( $row['incoming_detail'] ?? array() ), 'is_array' ) ) : array();
+				$has_detail       = ! empty( $detail_rows );
+				$detail_id        = 'lfa-detail-' . $detail_index;
+				$row_class        = 0 === $incoming_sources ? ' lfa-zero' : '';
 
-				echo '<tr' . $row_class . '>';
+				printf(
+					'<tr class="lfa-row%1$s" data-incoming-sources="%2$d" data-incoming-links="%3$d" data-title="%4$s">',
+					esc_attr( $row_class ),
+					$incoming_sources,
+					$incoming_total,
+					esc_attr( $this->mb_lower( $title ) )
+				);
 				echo '<td>';
 
 				if ( '' !== $url ) {
@@ -575,16 +671,28 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				}
 
 				echo '</td>';
-				echo '<td>' . esc_html( $type_label ) . '</td>';
-				echo '<td><strong>' . esc_html( number_format_i18n( $incoming_total ) ) . '</strong></td>';
-				echo '<td>' . esc_html( number_format_i18n( $incoming_sources ) ) . '</td>';
-				echo '<td><strong>' . esc_html( number_format_i18n( $outgoing_total ) ) . '</strong></td>';
-				echo '<td>' . esc_html( number_format_i18n( $outgoing_targets ) ) . '</td>';
+				echo '<td><span class="lfa-type-badge">' . esc_html( $type_label ) . '</span></td>';
+				echo '<td class="lfa-num lfa-num--primary">';
+
+				if ( $has_detail ) {
+					printf(
+						'<button type="button" class="lfa-count-toggle" aria-expanded="false" aria-controls="%1$s" data-detail-target="%1$s"><span class="lfa-count-badge">%2$s</span><span class="lfa-toggle-caret" aria-hidden="true">▾</span></button>',
+						esc_attr( $detail_id ),
+						esc_html( number_format_i18n( $incoming_sources ) )
+					);
+				} else {
+					echo '<span class="lfa-count-badge lfa-count-badge--empty">' . esc_html( number_format_i18n( $incoming_sources ) ) . '</span>';
+				}
+
+				echo '</td>';
+				echo '<td class="lfa-num lfa-num--muted">' . esc_html( number_format_i18n( $incoming_total ) ) . '</td>';
+				echo '<td class="lfa-num">' . esc_html( number_format_i18n( $outgoing_targets ) ) . '</td>';
+				echo '<td class="lfa-num lfa-num--muted">' . esc_html( number_format_i18n( $outgoing_total ) ) . '</td>';
 				echo '<td>';
 
 				if ( '' !== $edit_url ) {
 					printf(
-						'<a href="%s">%s</a>',
+						'<a class="lfa-edit-link" href="%s">%s</a>',
 						esc_url( $edit_url ),
 						esc_html__( 'Düzenle', 'linkflow-auditor' )
 					);
@@ -594,9 +702,94 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 
 				echo '</td>';
 				echo '</tr>';
+
+				if ( $has_detail ) {
+					$this->render_incoming_detail_row( $detail_id, $detail_rows );
+				}
+
+				++$detail_index;
 			}
 
 				echo '</tbody></table></div>';
+			}
+
+			/**
+			 * Render the expandable "who links here" detail row for one target.
+			 *
+			 * @param string                         $detail_id   DOM id linking the toggle to this row.
+			 * @param array<int,array<string,mixed>> $detail_rows Linking source rows.
+			 */
+			private function render_incoming_detail_row( string $detail_id, array $detail_rows ): void {
+				echo '<tr class="lfa-detail-row" id="' . esc_attr( $detail_id ) . '" hidden>';
+				echo '<td colspan="7">';
+				echo '<div class="lfa-detail">';
+				echo '<div class="lfa-detail-head">' . esc_html__( 'Bu içeriğe link veren yazılar', 'linkflow-auditor' ) . '</div>';
+				echo '<table class="lfa-detail-table"><thead><tr>';
+				echo '<th>' . esc_html__( 'Kaynak yazı', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'Anchor text', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'Link', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'İşlem', 'linkflow-auditor' ) . '</th>';
+				echo '</tr></thead><tbody>';
+
+				foreach ( $detail_rows as $detail ) {
+					$src_title = (string) ( $detail['title'] ?? '' );
+					if ( '' === trim( $src_title ) ) {
+						$src_title = __( '(Başlıksız)', 'linkflow-auditor' );
+					}
+
+					$src_url   = (string) ( $detail['url'] ?? '' );
+					$edit_url  = (string) ( $detail['edit_url'] ?? '' );
+					$count     = isset( $detail['count'] ) ? (int) $detail['count'] : 0;
+					$anchors   = array_values( array_filter( (array) ( $detail['anchors'] ?? array() ), 'is_string' ) );
+
+					echo '<tr>';
+					echo '<td>';
+					if ( '' !== $src_url ) {
+						printf(
+							'<a href="%s" target="_blank" rel="noopener noreferrer">%s</a>',
+							esc_url( $src_url ),
+							esc_html( $src_title )
+						);
+					} else {
+						echo esc_html( $src_title );
+					}
+					echo '</td>';
+
+					echo '<td>';
+					if ( empty( $anchors ) ) {
+						echo '<em class="lfa-anchor-empty">' . esc_html__( '(metin yok / görsel link)', 'linkflow-auditor' ) . '</em>';
+					} else {
+						$chips = array();
+						foreach ( $anchors as $anchor ) {
+							$chips[] = '<span class="lfa-anchor-chip">' . esc_html( $anchor ) . '</span>';
+						}
+						echo implode( ' ', $chips );
+					}
+					echo '</td>';
+
+					printf(
+						'<td class="lfa-num">%s&times;</td>',
+						esc_html( number_format_i18n( $count ) )
+					);
+
+					echo '<td>';
+					if ( '' !== $edit_url ) {
+						printf(
+							'<a class="lfa-edit-link" href="%s">%s</a>',
+							esc_url( $edit_url ),
+							esc_html__( 'Düzenle', 'linkflow-auditor' )
+						);
+					} else {
+						echo '&mdash;';
+					}
+					echo '</td>';
+					echo '</tr>';
+				}
+
+				echo '</tbody></table>';
+				echo '</div>';
+				echo '</td>';
+				echo '</tr>';
 			}
 
 			/**
@@ -639,6 +832,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					if ( empty( $rows ) ) {
 						echo '<p class="lfa-empty">' . esc_html__( 'Raporlanacak içerik bulunmadı.', 'linkflow-auditor' ) . '</p>';
 					} else {
+						$this->render_internal_filter_bar( $rows );
 						$this->render_report_table( $report, 0 );
 					}
 				} else {
@@ -1009,6 +1203,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					'url_index'        => $target_data['url_index'],
 					'incoming_links'   => array(),
 					'incoming_sources' => array(),
+					'incoming_details' => array(),
 					'outgoing_links'   => array(),
 					'outgoing_targets' => array(),
 					'check_external_links' => $check_external,
@@ -1150,6 +1345,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					'url_index'            => $target_data['url_index'],
 					'incoming_links'       => array(),
 					'incoming_sources'     => array(),
+					'incoming_details'     => array(),
 					'outgoing_links'       => array(),
 					'outgoing_targets'     => array(),
 					'check_external_links' => $check_external,
@@ -1751,7 +1947,10 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					$linked_targets       = array();
 					$outgoing_link_count  = 0;
 					$outgoing_target_ids  = array();
-					$links                = $this->extract_links( (string) $post->post_content );
+					$content_for_links    = $should_count_internal
+						? $this->render_content_for_counting( $post )
+						: (string) $post->post_content;
+					$links                = $this->extract_links( $content_for_links );
 
 					foreach ( $links as $link ) {
 						$href        = (string) ( $link['href'] ?? '' );
@@ -1778,6 +1977,8 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					++$state['incoming_links'][ $target_id ];
 					++$outgoing_link_count;
 
+					$this->record_incoming_detail( $state, $target_id, $source_id, $anchor_text );
+
 					$linked_targets[ $target_id ]      = true;
 					$outgoing_target_ids[ $target_id ] = true;
 				}
@@ -1799,6 +2000,68 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				}
 			}
 		}
+
+			/**
+			 * Render a post's content the way the front end would before counting links.
+			 *
+			 * Running the block and shortcode processors means links produced by
+			 * Gutenberg blocks, reusable blocks, page builders and shortcodes are
+			 * counted, not just raw <a> tags typed into the editor. This is only used
+			 * for internal link counting; broken/redirect scans keep using raw content
+			 * so the manual remove/replace actions still match the stored href.
+			 *
+			 * @param WP_Post $post Source post.
+			 */
+			private function render_content_for_counting( WP_Post $post ): string {
+				$content = (string) $post->post_content;
+
+				if ( ! apply_filters( 'linkflow_auditor_render_content', true, $post ) ) {
+					return $content;
+				}
+
+				if ( function_exists( 'do_blocks' ) ) {
+					$content = do_blocks( $content );
+				}
+
+				$content = do_shortcode( $content );
+
+				return (string) $content;
+			}
+
+			/**
+			 * Record which source post linked to a target, plus a few anchor samples.
+			 *
+			 * This backs the auditable "incoming links" detail list so the reported
+			 * count can be verified against the actual linking posts.
+			 *
+			 * @param array<string,mixed> $state       Scan state, passed by reference.
+			 * @param int                 $target_id   Linked target post ID.
+			 * @param int                 $source_id   Linking source post ID.
+			 * @param string              $anchor_text Anchor text of the link.
+			 */
+			private function record_incoming_detail( array &$state, int $target_id, int $source_id, string $anchor_text ): void {
+				if ( ! isset( $state['incoming_details'][ $target_id ] ) ) {
+					$state['incoming_details'][ $target_id ] = array();
+				}
+
+				if ( ! isset( $state['incoming_details'][ $target_id ][ $source_id ] ) ) {
+					$state['incoming_details'][ $target_id ][ $source_id ] = array(
+						'count'   => 0,
+						'anchors' => array(),
+					);
+				}
+
+				++$state['incoming_details'][ $target_id ][ $source_id ]['count'];
+
+				$anchor_text = trim( $anchor_text );
+				if (
+					'' !== $anchor_text
+					&& count( $state['incoming_details'][ $target_id ][ $source_id ]['anchors'] ) < 5
+					&& ! in_array( $anchor_text, $state['incoming_details'][ $target_id ][ $source_id ]['anchors'], true )
+				) {
+					$state['incoming_details'][ $target_id ][ $source_id ]['anchors'][] = $anchor_text;
+				}
+			}
 
 			/**
 			 * Extract link href and anchor text values from HTML.
@@ -2560,13 +2823,29 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 		 * @param string $host Host.
 		 */
 		private function normalize_host( string $host ): string {
-			$host = strtolower( trim( $host ) );
+			$host = $this->mb_lower( trim( $host ) );
 
 			if ( 0 === strpos( $host, 'www.' ) ) {
 				$host = substr( $host, 4 );
 			}
 
 			return $host;
+		}
+
+		/**
+		 * Multibyte-safe lowercasing so Turkish/UTF-8 slugs match consistently.
+		 *
+		 * strtolower() is byte-based and leaves characters such as İ, Ğ, Ş, Ü, Ö, Ç
+		 * untouched, which caused internal links with accented slugs to be missed.
+		 *
+		 * @param string $value Value to lowercase.
+		 */
+		private function mb_lower( string $value ): string {
+			if ( function_exists( 'mb_strtolower' ) ) {
+				return mb_strtolower( $value, 'UTF-8' );
+			}
+
+			return strtolower( $value );
 		}
 
 		/**
@@ -2595,7 +2874,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				$path = '/';
 			}
 
-			return strtolower( $path );
+			return $this->mb_lower( $path );
 		}
 
 		/**
@@ -2621,6 +2900,47 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 			}
 
 			return '/' . implode( '/', $output );
+		}
+
+		/**
+		 * Build the auditable list of posts that link to a target.
+		 *
+		 * @param array<string,mixed> $state     Scan state.
+		 * @param int                 $target_id Target post ID.
+		 * @return array<int,array<string,mixed>>
+		 */
+		private function build_incoming_detail_rows( array $state, int $target_id ): array {
+			$sources = (array) ( $state['incoming_details'][ $target_id ] ?? array() );
+			$targets = (array) ( $state['targets'] ?? array() );
+			$rows    = array();
+
+			foreach ( $sources as $source_id => $info ) {
+				$source_id = (int) $source_id;
+				$meta      = isset( $targets[ $source_id ] ) && is_array( $targets[ $source_id ] ) ? $targets[ $source_id ] : array();
+
+				$rows[] = array(
+					'id'       => $source_id,
+					'title'    => (string) ( $meta['title'] ?? get_the_title( $source_id ) ),
+					'url'      => (string) ( $meta['url'] ?? get_permalink( $source_id ) ),
+					'edit_url' => (string) ( $meta['edit_url'] ?? '' ),
+					'count'    => isset( $info['count'] ) ? (int) $info['count'] : 0,
+					'anchors'  => array_values( array_filter( (array) ( $info['anchors'] ?? array() ), 'is_string' ) ),
+				);
+			}
+
+			usort(
+				$rows,
+				static function ( array $a, array $b ): int {
+					$count_cmp = ( $b['count'] ?? 0 ) <=> ( $a['count'] ?? 0 );
+					if ( 0 !== $count_cmp ) {
+						return $count_cmp;
+					}
+
+					return strcasecmp( (string) ( $a['title'] ?? '' ), (string) ( $b['title'] ?? '' ) );
+				}
+			);
+
+			return $rows;
 		}
 
 		/**
@@ -2657,6 +2977,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 							'edit_url'         => (string) ( $target['edit_url'] ?? '' ),
 							'incoming_links'   => isset( $state['incoming_links'][ $target_id ] ) ? (int) $state['incoming_links'][ $target_id ] : 0,
 							'incoming_sources' => isset( $state['incoming_sources'][ $target_id ] ) ? (int) $state['incoming_sources'][ $target_id ] : 0,
+							'incoming_detail'  => $this->build_incoming_detail_rows( $state, $target_id ),
 							'outgoing_links'   => isset( $state['outgoing_links'][ $target_id ] ) ? (int) $state['outgoing_links'][ $target_id ] : 0,
 							'outgoing_targets' => isset( $state['outgoing_targets'][ $target_id ] ) ? (int) $state['outgoing_targets'][ $target_id ] : 0,
 						);
@@ -2665,14 +2986,15 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					usort(
 						$rows,
 						static function ( array $a, array $b ): int {
-							$total_cmp = ( $a['incoming_links'] ?? 0 ) <=> ( $b['incoming_links'] ?? 0 );
-							if ( 0 !== $total_cmp ) {
-								return $total_cmp;
-							}
-
+							// Underlinked content first: sort by unique linking pages, the trusted metric.
 							$source_cmp = ( $a['incoming_sources'] ?? 0 ) <=> ( $b['incoming_sources'] ?? 0 );
 							if ( 0 !== $source_cmp ) {
 								return $source_cmp;
+							}
+
+							$total_cmp = ( $a['incoming_links'] ?? 0 ) <=> ( $b['incoming_links'] ?? 0 );
+							if ( 0 !== $total_cmp ) {
+								return $total_cmp;
 							}
 
 							$outgoing_cmp = ( $a['outgoing_links'] ?? 0 ) <=> ( $b['outgoing_links'] ?? 0 );

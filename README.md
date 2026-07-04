@@ -171,6 +171,15 @@ Build a WordPress-installable package with the folder name `linkflow-auditor`. Z
 
 ## Changelog
 
+### 1.6.0
+
+- Reworked the internal link report around **unique linking pages** as the trusted "incoming link" metric, with total link occurrences kept as a secondary column.
+- Internal link counting now renders block/shortcode/page-builder content before counting, so links that are not typed directly as `<a>` tags are no longer missed (toggle with the `linkflow_auditor_render_content` filter).
+- Fixed a matching bug where Turkish/UTF-8 slugs (İ, Ğ, Ş, Ü, Ö, Ç) were lowercased incorrectly, causing valid internal links to be uncounted.
+- Added an auditable "Bu içeriğe link veren yazılar" detail panel: expand any incoming count to see exactly which posts link to it, with anchor text and per-source counts.
+- Added a filter/report bar on the internal tab with quick presets (0, 0–3, 1–3, 4+), a custom min–max range, title search and one-click CSV export of the filtered list.
+- Modernised the admin UI (hero header, card layout, pill tabs, badges, refreshed tables).
+
 ### 1.5.1
 
 - Preserved the active report tab after a manual scan or report clear.
