@@ -27,7 +27,7 @@ if ( ! class_exists( 'LinkFlow_Auditor_Url_Normalizer' ) ) {
 				$href = $home_scheme . ':' . $href;
 			}
 
-			if ( 0 === stripos( $href, 'www.' ) ) {
+			if ( 1 === preg_match( '#^www\.[a-z0-9-]+\.[a-z]{2,}#i', $href ) ) {
 				$href = $home_scheme . '://' . $href;
 			}
 

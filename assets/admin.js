@@ -135,8 +135,51 @@
 		});
 	});
 
+	$(document).on('click', '.lfa-clear-all-records', function () {
+		var $button = $(this);
+		var $root = $button.closest('.lfa-cleanup-bar');
+		var messages = lfaMessages();
+
+		if (!window.confirm(messages.confirmClearAllRecords)) {
+			return;
+		}
+
+		$button.prop('disabled', true);
+		setMessage($root, messages.clearingAll, false);
+
+		request({
+			action: 'linkflow_auditor_clear_all_records'
+		}).done(function (response) {
+			var data = response && response.data ? response.data : {};
+
+			if (!response || !response.success) {
+				$button.prop('disabled', false);
+				setMessage($root, data.message || messages.error, true);
+				return;
+			}
+
+			setMessage($root, data.message || messages.done, false);
+			window.setTimeout(function () {
+				window.location.reload();
+			}, 700);
+		}).fail(function () {
+			$button.prop('disabled', false);
+			setMessage($root, messages.error, true);
+		});
+	});
+
 	function lfaMessages() {
 		return (LinkFlowAuditor && LinkFlowAuditor.messages) || {};
+	}
+
+	function getCurrentSuggestionIds($root) {
+		var value = ($root.find('.lfa-current-suggestion-ids').first().val() || '').trim();
+
+		if (!value) {
+			return '';
+		}
+
+		return value.split(',').filter(Boolean).join(',');
 	}
 
 	function updateTabCount($row, scope, count) {
@@ -368,35 +411,122 @@
 		});
 	});
 
-	$(document).on('click', '.lfa-manual-search', function () {
+	$(document).on('click', '.lfa-change-suggestions', function () {
 		var $button = $(this);
 		var $panel = $button.closest('.lfa-tab-panel');
-		var $builder = $button.closest('[data-lfa-manual-builder]');
 		var messages = lfaMessages();
-		var anchor = ($builder.find('.lfa-manual-anchor').val() || '').trim();
-		var targetUrl = ($builder.find('.lfa-manual-target').val() || '').trim();
-		var sort = $builder.find('.lfa-manual-sort').val() || 'least_links';
 
-		if (!anchor) {
-			window.alert(messages.emptyAnchor || messages.error);
-			return;
-		}
+		$button.prop('disabled', true);
+		setMessage($panel, messages.changingSuggestions, false);
 
-		if (!targetUrl) {
-			window.alert(messages.emptyUrl || messages.error);
+		request({
+			action: 'linkflow_auditor_rotate_suggestions',
+			current_ids: getCurrentSuggestionIds($panel)
+		}).done(function (response) {
+			var data = response && response.data ? response.data : {};
+
+			if (!response || !response.success) {
+				$button.prop('disabled', false);
+				setMessage($panel, data.message || messages.error, true);
+				return;
+			}
+
+			$panel.find('.lfa-suggestion-results').html(data.html || '');
+			setMessage($panel, data.message || '', false);
+		}).fail(function () {
+			$button.prop('disabled', false);
+			setMessage($panel, messages.error, true);
+		});
+	});
+
+	$(document).on('click', '.lfa-clear-suggestion-rotation', function () {
+		var $button = $(this);
+		var $root = $button.closest('.lfa-tab-panel, .lfa-widget, .lfa-page');
+		var messages = lfaMessages();
+
+		if (!window.confirm(messages.confirmClearSuggestionRecords)) {
 			return;
 		}
 
 		$button.prop('disabled', true);
+		setMessage($root, messages.clearingSuggestionRecords, false);
+
+		request({
+			action: 'linkflow_auditor_clear_suggestion_rotation',
+			scope: $button.data('scope') || 'normal'
+		}).done(function (response) {
+			var data = response && response.data ? response.data : {};
+
+			if (!response || !response.success) {
+				$button.prop('disabled', false);
+				setMessage($root, data.message || messages.error, true);
+				return;
+			}
+
+			$root.find('.lfa-current-suggestion-ids').val('');
+			$button.prop('disabled', false);
+			setMessage($root, data.message || messages.done, false);
+		}).fail(function () {
+			$button.prop('disabled', false);
+			setMessage($root, messages.error, true);
+		});
+	});
+
+	function getManualMode($builder) {
+		return $builder.find('input[name="lfa-manual-mode"]:checked').val() || 'phrase';
+	}
+
+	function updateManualMode($builder) {
+		var mode = getManualMode($builder);
+
+		$builder.find('.lfa-manual-mode-fields--phrase').prop('hidden', mode !== 'phrase');
+		$builder.find('.lfa-manual-mode-fields--source').prop('hidden', mode !== 'source_url');
+	}
+
+	function runManualSuggestionSearch($button, resetContext) {
+		var $panel = $button.closest('.lfa-tab-panel');
+		var $builder = $panel.find('[data-lfa-manual-builder]');
+		var messages = lfaMessages();
+		var mode = getManualMode($builder);
+		var anchor = ($builder.find('.lfa-manual-anchor').val() || '').trim();
+		var targetUrl = ($builder.find('.lfa-manual-target').val() || '').trim();
+		var sourceUrl = ($builder.find('.lfa-manual-source-url').val() || '').trim();
+		var sort = $builder.find('.lfa-manual-sort').val() || 'least_links';
+
+		if (mode === 'source_url') {
+			if (!sourceUrl) {
+				window.alert(messages.emptySourceUrl || messages.emptyUrl || messages.error);
+				return;
+			}
+		} else {
+			if (!anchor) {
+				window.alert(messages.emptyAnchor || messages.error);
+				return;
+			}
+
+			if (!targetUrl) {
+				window.alert(messages.emptyUrl || messages.error);
+				return;
+			}
+		}
+
+		$button.prop('disabled', true);
 		$builder.find('.lfa-spinner').addClass('is-active');
-		setMessage($panel, messages.searching, false);
-		$panel.find('.lfa-manual-results').empty();
+		setMessage($panel, resetContext ? messages.searching : messages.changingSuggestions, false);
+
+		if (resetContext) {
+			$panel.find('.lfa-manual-results').empty();
+		}
 
 		request({
 			action: 'linkflow_auditor_manual_suggestions',
+			mode: mode,
 			anchor: anchor,
 			target_url: targetUrl,
-			sort: sort
+			source_url: sourceUrl,
+			sort: sort,
+			current_ids: resetContext ? '' : getCurrentSuggestionIds($panel),
+			reset_context: resetContext ? '1' : '0'
 		}).done(function (response) {
 			var data = response && response.data ? response.data : {};
 
@@ -413,6 +543,18 @@
 			$button.prop('disabled', false);
 			$builder.find('.lfa-spinner').removeClass('is-active');
 		});
+	}
+
+	$(document).on('change', 'input[name="lfa-manual-mode"]', function () {
+		updateManualMode($(this).closest('[data-lfa-manual-builder]'));
+	});
+
+	$(document).on('click', '.lfa-manual-search', function () {
+		runManualSuggestionSearch($(this), true);
+	});
+
+	$(document).on('click', '.lfa-manual-change-suggestions', function () {
+		runManualSuggestionSearch($(this), false);
 	});
 
 	$(document).on('click', '.lfa-accept-manual-suggestion', function () {
@@ -546,6 +688,10 @@
 			var initialTab = getHashTab($tabs) || 'internal';
 
 			activateTab($tabs, initialTab, false);
+		});
+
+		$('[data-lfa-manual-builder]').each(function () {
+			updateManualMode($(this));
 		});
 	});
 
