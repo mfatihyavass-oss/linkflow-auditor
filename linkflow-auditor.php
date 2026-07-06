@@ -3,7 +3,7 @@
  * Plugin Name: LinkFlow Auditor
  * Plugin URI: https://github.com/mfatihyavass-oss/linkflow-auditor
  * Description: Audits internal links, broken links and redirecting links from the WordPress admin.
- * Version: 1.8.0
+ * Version: 1.10.1
  * Author: mfatihyavass-oss
  * Author URI: https://github.com/mfatihyavass-oss
  * Requires at least: 6.4
@@ -23,9 +23,10 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 	 * Main plugin class.
 	 */
 	final class LinkFlow_Auditor {
-			private const VERSION               = '1.8.0';
+			private const VERSION               = '1.10.1';
 			private const REPORT_OPTION         = 'linkflow_auditor_report';
 			private const SETTINGS_OPTION       = 'linkflow_auditor_settings';
+			private const IGNORED_SUGGESTIONS_OPTION = 'linkflow_auditor_ignored_suggestions';
 			private const CHECK_EXTERNAL_OPTION = 'linkflow_auditor_check_external_links';
 			private const STATE_PREFIX          = 'linkflow_auditor_scan_';
 			private const NONCE_ACTION          = 'linkflow_auditor_admin';
@@ -50,6 +51,13 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 			private const HEALTH_LIST_CAP       = 500;
 			private const HEALTH_DISPLAY_CAP    = 100;
 			private const EXTERNAL_LIST_CAP     = 2000;
+			private const SUGGESTION_LIST_CAP   = 1000;
+			private const SUGGESTION_DISPLAY_CAP = 500;
+			private const SUGGESTION_CANDIDATES_PER_SOURCE = 30;
+			private const SUGGESTIONS_PER_SOURCE = 3;
+			private const SUGGESTIONS_PER_TARGET = 10;
+			private const MANUAL_SUGGESTION_LIMIT = 25;
+			private const SUGGESTION_CONTEXT_RADIUS = 58;
 			private const SCAN_MODE_EXTERNAL    = 'external';
 			private const SCAN_MODE_INTERNAL_FIX = 'internal';
 
@@ -86,6 +94,11 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				add_action( 'wp_ajax_linkflow_auditor_scan_batch', array( $this, 'ajax_scan_batch' ) );
 				add_action( 'wp_ajax_linkflow_auditor_clear_report', array( $this, 'ajax_clear_report' ) );
 			add_action( 'wp_ajax_linkflow_auditor_fix_link', array( $this, 'ajax_fix_link' ) );
+			add_action( 'wp_ajax_linkflow_auditor_accept_suggestion', array( $this, 'ajax_accept_suggestion' ) );
+			add_action( 'wp_ajax_linkflow_auditor_dismiss_suggestion', array( $this, 'ajax_dismiss_suggestion' ) );
+			add_action( 'wp_ajax_linkflow_auditor_reset_dismissed_suggestions', array( $this, 'ajax_reset_dismissed_suggestions' ) );
+			add_action( 'wp_ajax_linkflow_auditor_manual_suggestions', array( $this, 'ajax_manual_suggestions' ) );
+			add_action( 'wp_ajax_linkflow_auditor_accept_manual_suggestion', array( $this, 'ajax_accept_manual_suggestion' ) );
 				add_action( 'admin_post_linkflow_auditor_save_settings', array( $this, 'handle_save_settings' ) );
 			}
 
@@ -101,6 +114,10 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 
 				if ( false === get_option( self::SETTINGS_OPTION, false ) ) {
 					add_option( self::SETTINGS_OPTION, self::default_settings(), '', false );
+				}
+
+				if ( false === get_option( self::IGNORED_SUGGESTIONS_OPTION, false ) ) {
+					add_option( self::IGNORED_SUGGESTIONS_OPTION, array(), '', false );
 				}
 
 				wp_clear_scheduled_hook( self::LEGACY_CRON_HOOK );
@@ -268,9 +285,17 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 						'error'    => esc_html__( 'İşlem tamamlanamadı. Lütfen tekrar deneyin.', 'linkflow-auditor' ),
 						'fixing'   => esc_html__( 'Link güncelleniyor...', 'linkflow-auditor' ),
 						'removing' => esc_html__( 'Link kaldırılıyor...', 'linkflow-auditor' ),
+						'accepting' => esc_html__( 'Öneri uygulanıyor...', 'linkflow-auditor' ),
+						'dismissing' => esc_html__( 'Öneri kaldırılıyor...', 'linkflow-auditor' ),
+						'resetting' => esc_html__( 'Kaldırılan öneriler sıfırlanıyor...', 'linkflow-auditor' ),
+						'searching' => esc_html__( 'Öneriler aranıyor...', 'linkflow-auditor' ),
 						'confirmRemove'  => esc_html__( 'Bu link kaldırılsın mı? (Bağlantı silinir, metin yazıda kalır.)', 'linkflow-auditor' ),
 						'confirmReplace' => esc_html__( 'Bu link yönlendirilen adresle değiştirilsin mi?', 'linkflow-auditor' ),
+						'confirmAccept'  => esc_html__( 'Bu öneri kabul edilsin ve kaynak içerikteki ifade hedef sayfaya linklensin mi?', 'linkflow-auditor' ),
+						'confirmDismiss' => esc_html__( 'Bu öneri kaldırılsın ve tekrar önerilmesin mi?', 'linkflow-auditor' ),
+						'confirmResetDismissed' => esc_html__( 'Kaldırılan öneriler sıfırlansın mı? Sonra önerileri yenilerseniz tekrar görünebilirler.', 'linkflow-auditor' ),
 						'emptyUrl'       => esc_html__( 'Lütfen yeni bir URL girin.', 'linkflow-auditor' ),
+						'emptyAnchor'    => esc_html__( 'Lütfen linklenecek ifadeyi girin.', 'linkflow-auditor' ),
 					),
 				)
 			);
@@ -334,7 +359,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 		 */
 			private function render_scan_controls( array $report, string $scan_mode, string $button_label, bool $show_external = false ): void {
 				$scan_mode      = $this->sanitize_scan_mode( $scan_mode );
-				$clear_disabled = empty( $report['rows'] ) && empty( $report['broken_links'] ) && empty( $report['redirect_links'] ) && empty( $report['created_at'] );
+				$clear_disabled = empty( $report['rows'] ) && empty( $report['suggestions'] ) && empty( $report['broken_links'] ) && empty( $report['redirect_links'] ) && empty( $report['created_at'] );
 				$settings       = $this->get_settings();
 				$check_external = ! empty( $settings['check_external_links'] );
 
@@ -822,8 +847,10 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 			 */
 			private function render_report_tabs( array $report ): void {
 				$rows           = array_values( array_filter( (array) ( $report['rows'] ?? array() ), 'is_array' ) );
+				$suggestions    = array_values( array_filter( (array) ( $report['suggestions'] ?? array() ), 'is_array' ) );
 				$broken_links   = array_values( array_filter( (array) ( $report['broken_links'] ?? array() ), 'is_array' ) );
 				$redirect_links = array_values( array_filter( (array) ( $report['redirect_links'] ?? array() ), 'is_array' ) );
+				$suggestion_count = isset( $report['suggestion_count'] ) ? (int) $report['suggestion_count'] : count( $suggestions );
 				$broken_count   = isset( $report['broken_link_count'] ) ? (int) $report['broken_link_count'] : count( $broken_links );
 				$redirect_count = isset( $report['redirect_link_count'] ) ? (int) $report['redirect_link_count'] : $this->count_redirect_usage( $redirect_links );
 				$has_internal   = ! empty( $report['internal_created_at'] ) || isset( $report['total_targets'] ) || ! empty( $rows );
@@ -842,6 +869,15 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					'<a href="#lfa-health" class="nav-tab" data-lfa-tab="health">%s <span class="lfa-tab-count lfa-tab-count--alert">%s</span></a>',
 					esc_html__( 'Link Sağlığı', 'linkflow-auditor' ),
 					esc_html( number_format_i18n( $health_count ) )
+				);
+				printf(
+					'<a href="#lfa-suggestions" class="nav-tab" data-lfa-tab="suggestions">%s <span class="lfa-tab-count">%s</span></a>',
+					esc_html__( 'İç Link Önerileri', 'linkflow-auditor' ),
+					esc_html( number_format_i18n( $suggestion_count ) )
+				);
+				printf(
+					'<a href="#lfa-manual-suggestions" class="nav-tab" data-lfa-tab="manual-suggestions">%s</a>',
+					esc_html__( 'Manuel Öneri', 'linkflow-auditor' )
 				);
 				printf(
 					'<a href="#lfa-broken-links" class="nav-tab" data-lfa-tab="broken">%s <span class="lfa-tab-count">%s</span></a>',
@@ -877,6 +913,14 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 
 				echo '<div id="lfa-health" class="lfa-tab-panel" data-lfa-panel="health" hidden>';
 				$this->render_health_tab( $report, $has_internal );
+				echo '</div>';
+
+				echo '<div id="lfa-suggestions" class="lfa-tab-panel" data-lfa-panel="suggestions" hidden>';
+				$this->render_suggestions_tab( $report, $has_internal );
+				echo '</div>';
+
+				echo '<div id="lfa-manual-suggestions" class="lfa-tab-panel" data-lfa-panel="manual-suggestions" hidden>';
+				$this->render_manual_suggestions_tab( $report, $has_internal );
 				echo '</div>';
 
 				echo '<div id="lfa-broken-links" class="lfa-tab-panel" data-lfa-panel="broken" hidden>';
@@ -972,6 +1016,278 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				$this->open_health_section( 'info', '🏷️', __( 'Zayıf/eksik anchor text', 'linkflow-auditor' ), (int) ( $health['weak_total'] ?? 0 ), __( '“Tıklayın”, “buraya”, “devamı” gibi genel ya da tamamen boş bağlantı metinleri. Hedefi anlatan açıklayıcı metinler kullanın.', 'linkflow-auditor' ) );
 				$this->render_health_weak_table( $weak, (int) ( $health['weak_total'] ?? 0 ) );
 				echo '</section>';
+			}
+
+			/**
+			 * Render the Internal Link Suggestions tab.
+			 *
+			 * @param array<string,mixed> $report       Existing report.
+			 * @param bool                $has_internal Whether an internal scan has run.
+			 */
+			private function render_suggestions_tab( array $report, bool $has_internal ): void {
+				echo '<div class="lfa-controls">';
+				printf(
+					'<button type="button" class="button button-primary lfa-start" data-scan-mode="%s" data-result-tab="suggestions">%s</button>',
+					esc_attr( self::SCAN_MODE_INTERNAL ),
+					esc_html__( 'Önerileri yenile', 'linkflow-auditor' )
+				);
+				echo '<span class="spinner lfa-spinner" aria-hidden="true"></span>';
+				echo '</div>';
+				echo '<div class="lfa-progress" hidden><div class="lfa-progress-bar"><span></span></div><strong>0%</strong></div>';
+				echo '<div class="lfa-message" aria-live="polite"></div>';
+				echo '<p class="description">' . esc_html__( 'Öneriler, daha az iç link alan hedeflere öncelik verir ve sadece kaynak içerikte güvenle linklenebilecek ifade bulunduğunda gösterilir.', 'linkflow-auditor' ) . '</p>';
+				$this->render_internal_scan_note( $report, $has_internal, 'suggestions' );
+				$this->render_dismissed_suggestions_reset_box();
+
+				if ( ! $has_internal ) {
+					echo '<p class="lfa-empty">' . esc_html__( 'İç link önerileri için önce taramayı çalıştırın.', 'linkflow-auditor' ) . '</p>';
+					return;
+				}
+
+				$suggestions = array_values( array_filter( (array) ( $report['suggestions'] ?? array() ), 'is_array' ) );
+				$total       = isset( $report['suggestion_count'] ) ? (int) $report['suggestion_count'] : count( $suggestions );
+
+				if ( empty( $suggestions ) ) {
+					echo '<p class="lfa-empty">' . esc_html__( 'Uygulanabilir iç link önerisi bulunamadı.', 'linkflow-auditor' ) . '</p>';
+					return;
+				}
+
+				printf(
+					'<div class="lfa-suggestion-toolbar"><input type="search" class="lfa-suggestion-search regular-text" placeholder="%s"><span class="lfa-external-summary">%s <strong>%s</strong></span></div>',
+					esc_attr__( 'Kaynak, hedef veya anchor metninde ara…', 'linkflow-auditor' ),
+					esc_html__( 'Toplam öneri:', 'linkflow-auditor' ),
+					esc_html( number_format_i18n( $total ) )
+				);
+
+				$shown = array_slice( $suggestions, 0, self::SUGGESTION_DISPLAY_CAP );
+
+				echo '<div class="lfa-table-wrap"><table class="widefat striped lfa-status-table lfa-suggestion-table"><thead><tr>';
+				echo '<th>' . esc_html__( 'Kaynak içerik', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'Linklenecek ifade', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'Hedef sayfa', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'Neden önerildi?', 'linkflow-auditor' ) . '</th>';
+				echo '<th>' . esc_html__( 'İşlem', 'linkflow-auditor' ) . '</th>';
+				echo '</tr></thead><tbody>';
+
+				foreach ( $shown as $suggestion ) {
+					$source_title = (string) ( $suggestion['source_title'] ?? '' );
+					$source_url   = (string) ( $suggestion['source_url'] ?? '' );
+					$target_title = (string) ( $suggestion['target_title'] ?? '' );
+					$target_url   = (string) ( $suggestion['target_url'] ?? '' );
+					$anchor       = (string) ( $suggestion['anchor'] ?? '' );
+					$reason       = (string) ( $suggestion['reason'] ?? '' );
+					$incoming     = isset( $suggestion['target_incoming_sources'] ) ? (int) $suggestion['target_incoming_sources'] : 0;
+					$search_key   = $this->mb_lower( $source_title . ' ' . $target_title . ' ' . $anchor . ' ' . $reason );
+
+					printf( '<tr class="lfa-suggestion-row" data-search="%s">', esc_attr( $search_key ) );
+					echo '<td>' . $this->health_title_cell( $source_title, $source_url ) . $this->render_suggestion_source_meta( $suggestion ) . '</td>';
+					echo '<td>' . $this->render_suggestion_context( $suggestion ) . '</td>';
+					echo '<td>';
+					echo $this->health_title_cell( $target_title, $target_url );
+					printf(
+						'<div class="lfa-suggestion-metric">%s <strong>%s</strong></div>',
+						esc_html__( 'Gelen link veren yazı:', 'linkflow-auditor' ),
+						esc_html( number_format_i18n( $incoming ) )
+					);
+					echo '</td>';
+					echo '<td>' . esc_html( $reason ) . '</td>';
+					echo '<td>' . $this->render_suggestion_action( $suggestion ) . '</td>';
+					echo '</tr>';
+				}
+
+				echo '</tbody></table></div>';
+
+				if ( count( $suggestions ) > self::SUGGESTION_DISPLAY_CAP ) {
+					printf(
+						'<p class="lfa-health-more">%s</p>',
+						esc_html(
+							sprintf(
+								/* translators: 1: shown count, 2: remaining count. */
+								__( 'İlk %1$s öneri gösteriliyor; %2$s tane daha var.', 'linkflow-auditor' ),
+								number_format_i18n( self::SUGGESTION_DISPLAY_CAP ),
+								number_format_i18n( count( $suggestions ) - self::SUGGESTION_DISPLAY_CAP )
+							)
+						)
+					);
+				}
+			}
+
+			/**
+			 * Render one suggestion's context with the anchor highlighted.
+			 *
+			 * @param array<string,mixed> $suggestion Suggestion row.
+			 */
+			private function render_suggestion_context( array $suggestion ): string {
+				$before = (string) ( $suggestion['context_before'] ?? '' );
+				$match  = (string) ( $suggestion['context_match'] ?? ( $suggestion['anchor'] ?? '' ) );
+				$after  = (string) ( $suggestion['context_after'] ?? '' );
+
+				if ( '' === trim( $match ) ) {
+					return '&mdash;';
+				}
+
+				return sprintf(
+					'<span class="lfa-suggestion-context">%s<mark>%s</mark>%s</span>',
+					esc_html( $before ),
+					esc_html( $match ),
+					esc_html( $after )
+				);
+			}
+
+			/**
+			 * Render source metrics for a suggestion row.
+			 *
+			 * @param array<string,mixed> $suggestion Suggestion row.
+			 */
+			private function render_suggestion_source_meta( array $suggestion ): string {
+				$outgoing = isset( $suggestion['source_outgoing_links'] ) ? (int) $suggestion['source_outgoing_links'] : 0;
+				$date     = isset( $suggestion['source_published_at'] ) ? (int) $suggestion['source_published_at'] : 0;
+
+				$parts = array(
+					sprintf(
+						'%s <strong>%s</strong>',
+						esc_html__( 'Çıkan iç link:', 'linkflow-auditor' ),
+						esc_html( number_format_i18n( $outgoing ) )
+					),
+				);
+
+				if ( $date > 0 ) {
+					$parts[] = sprintf(
+						'%s <strong>%s</strong>',
+						esc_html__( 'Yayın:', 'linkflow-auditor' ),
+						esc_html( wp_date( get_option( 'date_format' ), $date ) )
+					);
+				}
+
+				return '<div class="lfa-suggestion-source-meta">' . implode( ' <span aria-hidden="true">|</span> ', $parts ) . '</div>';
+			}
+
+			/**
+			 * Render a note about the internal scan data behind suggestions.
+			 *
+			 * @param array<string,mixed> $report       Existing report.
+			 * @param bool                $has_internal Whether an internal scan has run.
+			 * @param string              $context      Note context.
+			 */
+			private function render_internal_scan_note( array $report, bool $has_internal, string $context ): void {
+				if ( ! $has_internal ) {
+					if ( 'manual' === $context ) {
+						echo '<p class="lfa-scan-note lfa-scan-note--warning">' . esc_html__( 'En az iç link alan kaynaklar sıralamasını doğru kullanmak için önce İç Link Sayımı sekmesinden iç link taraması yapın.', 'linkflow-auditor' ) . '</p>';
+					}
+					return;
+				}
+
+				$timestamp = isset( $report['internal_created_at'] ) ? (int) $report['internal_created_at'] : 0;
+				if ( $timestamp <= 0 ) {
+					return;
+				}
+
+				$date = wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $timestamp );
+
+				if ( 'manual' === $context ) {
+					printf(
+						'<p class="lfa-scan-note">%s</p>',
+						esc_html(
+							sprintf(
+								/* translators: %s: scan date. */
+								__( 'En az iç link alan kaynaklar sıralaması %s tarihli iç link taramasına göre yapılır.', 'linkflow-auditor' ),
+								$date
+							)
+						)
+					);
+					return;
+				}
+
+				printf(
+					'<p class="lfa-scan-note">%s</p>',
+					esc_html(
+						sprintf(
+							/* translators: %s: scan date. */
+							__( 'Bu öneri verisi %s tarihli iç link taramasına aittir.', 'linkflow-auditor' ),
+							$date
+						)
+					)
+				);
+			}
+
+			/**
+			 * Render control for restoring dismissed automatic suggestions.
+			 */
+			private function render_dismissed_suggestions_reset_box(): void {
+				$count = count( $this->get_ignored_suggestion_ids() );
+
+				echo '<div class="lfa-dismissed-reset">';
+				printf(
+					'<span>%s <strong class="lfa-dismissed-count">%s</strong></span>',
+					esc_html__( 'Kaldırılmış öneri:', 'linkflow-auditor' ),
+					esc_html( number_format_i18n( $count ) )
+				);
+				printf(
+					'<button type="button" class="button button-small lfa-reset-dismissed-suggestions"%s>%s</button>',
+					disabled( $count <= 0, true, false ),
+					esc_html__( 'Kaldırılan önerileri sıfırla', 'linkflow-auditor' )
+				);
+				echo '<span class="description">' . esc_html__( 'Sıfırladıktan sonra önerileri yenilerseniz kaldırılan öneriler tekrar listelenebilir.', 'linkflow-auditor' ) . '</span>';
+				echo '</div>';
+			}
+
+			/**
+			 * Render the accept button for a suggestion.
+			 *
+			 * @param array<string,mixed> $suggestion Suggestion row.
+			 */
+			private function render_suggestion_action( array $suggestion ): string {
+				$suggestion_id = (string) ( $suggestion['id'] ?? '' );
+
+				if ( '' === $suggestion_id ) {
+					return '&mdash;';
+				}
+
+				return sprintf(
+					'<div class="lfa-actions"><button type="button" class="button button-small button-primary lfa-accept-suggestion" data-suggestion-id="%1$s">%2$s</button> <button type="button" class="button button-small lfa-dismiss-suggestion" data-suggestion-id="%1$s">%3$s</button></div>',
+					esc_attr( $suggestion_id ),
+					esc_html__( 'Kabul et', 'linkflow-auditor' ),
+					esc_html__( 'Öneriyi kaldır', 'linkflow-auditor' )
+				);
+			}
+
+			/**
+			 * Render the Manual Suggestions tab.
+			 */
+			private function render_manual_suggestions_tab( array $report, bool $has_internal ): void {
+				echo '<div class="lfa-manual-builder" data-lfa-manual-builder>';
+				echo '<div class="lfa-manual-field">';
+				echo '<label for="lfa-manual-anchor">' . esc_html__( 'Linklenecek ifade', 'linkflow-auditor' ) . '</label>';
+				printf(
+					'<input type="text" id="lfa-manual-anchor" class="regular-text lfa-manual-anchor" placeholder="%s">',
+					esc_attr__( 'Örn: velayet hakkı', 'linkflow-auditor' )
+				);
+				echo '</div>';
+				echo '<div class="lfa-manual-field">';
+				echo '<label for="lfa-manual-target">' . esc_html__( 'Hedef URL', 'linkflow-auditor' ) . '</label>';
+				printf(
+					'<input type="text" id="lfa-manual-target" class="regular-text lfa-manual-target" placeholder="%s">',
+					esc_attr__( 'https://site.com/hedef-sayfa/ veya ana sayfa', 'linkflow-auditor' )
+				);
+				echo '</div>';
+				echo '<div class="lfa-manual-field">';
+				echo '<label for="lfa-manual-sort">' . esc_html__( 'Sıralama', 'linkflow-auditor' ) . '</label>';
+				echo '<select id="lfa-manual-sort" class="lfa-manual-sort">';
+				echo '<option value="least_links">' . esc_html__( 'En az iç link alan kaynaklar', 'linkflow-auditor' ) . '</option>';
+				echo '<option value="oldest">' . esc_html__( 'En eski yazılar önce', 'linkflow-auditor' ) . '</option>';
+				echo '<option value="newest">' . esc_html__( 'En yeni yazılar önce', 'linkflow-auditor' ) . '</option>';
+				echo '</select>';
+				echo '</div>';
+				printf(
+					'<button type="button" class="button button-primary lfa-manual-search">%s</button>',
+					esc_html__( 'Ara', 'linkflow-auditor' )
+				);
+				echo '<span class="spinner lfa-spinner" aria-hidden="true"></span>';
+				echo '</div>';
+				$this->render_internal_scan_note( $report, $has_internal, 'manual' );
+				echo '<p class="description">' . esc_html__( 'En fazla 25 kaynak içerik listelenir. Sonuçlar yalnızca ifadenin düz metinde, mevcut bir linkin dışında bulunduğu yerlerden oluşturulur.', 'linkflow-auditor' ) . '</p>';
+				echo '<div class="lfa-message" aria-live="polite"></div>';
+				echo '<div class="lfa-manual-results" aria-live="polite"></div>';
 			}
 
 			/**
@@ -1617,6 +1933,8 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 							'redirect_link_count'  => 0,
 							'broken_links'         => array(),
 							'redirect_links'       => array(),
+							'suggestion_candidates' => array(),
+							'suggestion_total'     => 0,
 						)
 					);
 
@@ -1661,6 +1979,8 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					'redirect_link_count'  => 0,
 					'broken_links'         => array(),
 					'redirect_links'       => array(),
+					'suggestion_candidates' => array(),
+					'suggestion_total'     => 0,
 					'http_cache'           => array(),
 					'offset'               => 0,
 				);
@@ -1774,6 +2094,8 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 							'redirect_link_count'  => 0,
 							'broken_links'         => array(),
 							'redirect_links'       => array(),
+							'suggestion_candidates' => array(),
+							'suggestion_total'     => 0,
 						)
 					);
 
@@ -1809,6 +2131,8 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					'redirect_link_count'  => 0,
 					'broken_links'         => array(),
 					'redirect_links'       => array(),
+					'suggestion_candidates' => array(),
+					'suggestion_total'     => 0,
 					'http_cache'           => array(),
 					'offset'               => 0,
 				);
@@ -1919,6 +2243,762 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					'external_count' => $counts['external_count'],
 				)
 			);
+		}
+
+		/**
+		 * Accept one internal link suggestion and add the link to the source post.
+		 */
+		public function ajax_accept_suggestion(): void {
+			$this->verify_ajax_request();
+
+			$suggestion_id = isset( $_POST['suggestion_id'] ) ? sanitize_text_field( wp_unslash( $_POST['suggestion_id'] ) ) : '';
+
+			if ( '' === $suggestion_id ) {
+				wp_send_json_error( array( 'message' => esc_html__( 'Öneri bilgisi eksik.', 'linkflow-auditor' ) ), 400 );
+			}
+
+			$suggestion = $this->find_suggestion_by_id( $suggestion_id );
+			if ( empty( $suggestion ) ) {
+				wp_send_json_error( array( 'message' => esc_html__( 'Öneri bulunamadı. Raporu yenileyin.', 'linkflow-auditor' ) ), 404 );
+			}
+
+			$source_id = (int) ( $suggestion['source_id'] ?? 0 );
+			$target_id = (int) ( $suggestion['target_id'] ?? 0 );
+
+			if ( $source_id <= 0 || $target_id <= 0 ) {
+				wp_send_json_error( array( 'message' => esc_html__( 'Öneri bilgisi geçersiz.', 'linkflow-auditor' ) ), 400 );
+			}
+
+			if ( ! current_user_can( 'edit_post', $source_id ) ) {
+				wp_send_json_error( array( 'message' => esc_html__( 'Bu yazıyı düzenleme yetkiniz yok.', 'linkflow-auditor' ) ), 403 );
+			}
+
+			$changed = $this->apply_internal_link_suggestion( $suggestion );
+
+			if ( is_wp_error( $changed ) ) {
+				wp_send_json_error( array( 'message' => $changed->get_error_message() ), 400 );
+			}
+
+			if ( $changed < 1 ) {
+				wp_send_json_error( array( 'message' => esc_html__( 'Linklenecek ifade kaynak içerikte bulunamadı. Rapor güncel olmayabilir.', 'linkflow-auditor' ) ), 404 );
+			}
+
+			$suggestion_count = $this->update_report_after_suggestion_accept( $suggestion_id, $source_id, $target_id );
+
+			wp_send_json_success(
+				array(
+					'message'          => esc_html__( 'Öneri kabul edildi. Link eklendi; sayılar bir sonraki taramada güncellenir.', 'linkflow-auditor' ),
+					'suggestion_count' => $suggestion_count,
+				)
+			);
+		}
+
+		/**
+		 * Dismiss one saved suggestion and suppress it for future scans.
+		 */
+		public function ajax_dismiss_suggestion(): void {
+			$this->verify_ajax_request();
+
+			$suggestion_id = isset( $_POST['suggestion_id'] ) ? sanitize_key( wp_unslash( $_POST['suggestion_id'] ) ) : '';
+
+			if ( '' === $suggestion_id ) {
+				wp_send_json_error( array( 'message' => esc_html__( 'Öneri bilgisi eksik.', 'linkflow-auditor' ) ), 400 );
+			}
+
+			$ignored                   = $this->get_ignored_suggestion_ids();
+			$ignored[ $suggestion_id ] = true;
+			$this->save_ignored_suggestion_ids( $ignored );
+
+			$suggestion_count = $this->update_report_after_suggestion_dismiss( $suggestion_id );
+
+			wp_send_json_success(
+				array(
+					'message'          => esc_html__( 'Öneri kaldırıldı ve tekrar önerilmeyecek.', 'linkflow-auditor' ),
+					'suggestion_count' => $suggestion_count,
+				)
+			);
+		}
+
+		/**
+		 * Clear all dismissed automatic suggestion IDs.
+		 */
+		public function ajax_reset_dismissed_suggestions(): void {
+			$this->verify_ajax_request();
+
+			$this->save_ignored_suggestion_ids( array() );
+
+			wp_send_json_success(
+				array(
+					'message' => esc_html__( 'Kaldırılan öneriler sıfırlandı. Tekrar görmek için önerileri yenileyin.', 'linkflow-auditor' ),
+					'count'   => 0,
+				)
+			);
+		}
+
+		/**
+		 * Search editable content for a manual internal link opportunity.
+		 */
+		public function ajax_manual_suggestions(): void {
+			$this->verify_ajax_request();
+
+			$anchor = isset( $_POST['anchor'] ) ? trim( (string) wp_unslash( $_POST['anchor'] ) ) : '';
+			$target = isset( $_POST['target_url'] ) ? trim( (string) wp_unslash( $_POST['target_url'] ) ) : '';
+			$sort   = isset( $_POST['sort'] ) ? sanitize_key( wp_unslash( $_POST['sort'] ) ) : 'least_links';
+
+			if ( '' === $anchor || $this->mb_strlen( $this->normalize_suggestion_phrase( $anchor ) ) < 2 ) {
+				wp_send_json_error( array( 'message' => esc_html__( 'Linklenecek ifade çok kısa.', 'linkflow-auditor' ) ), 400 );
+			}
+
+			$target_url = $this->normalize_manual_target_url( $target );
+			if ( is_wp_error( $target_url ) ) {
+				wp_send_json_error( array( 'message' => $target_url->get_error_message() ), 400 );
+			}
+
+			if ( ! in_array( $sort, array( 'least_links', 'oldest', 'newest' ), true ) ) {
+				$sort = 'least_links';
+			}
+
+			$suggestions = $this->build_manual_link_suggestions( $anchor, (string) $target_url, $sort );
+			$html        = $this->render_manual_suggestions_results( $suggestions, (string) $target_url );
+
+			wp_send_json_success(
+				array(
+					'message' => empty( $suggestions )
+						? esc_html__( 'Uygun düz metin eşleşmesi bulunamadı.', 'linkflow-auditor' )
+						: esc_html__( 'Manuel öneriler hazır.', 'linkflow-auditor' ),
+					'count'   => count( $suggestions ),
+					'html'    => $html,
+				)
+			);
+		}
+
+		/**
+		 * Accept one manually searched suggestion.
+		 */
+		public function ajax_accept_manual_suggestion(): void {
+			$this->verify_ajax_request();
+
+			$source_id = isset( $_POST['source_id'] ) ? absint( wp_unslash( $_POST['source_id'] ) ) : 0;
+			$anchor    = isset( $_POST['anchor'] ) ? trim( (string) wp_unslash( $_POST['anchor'] ) ) : '';
+			$target    = isset( $_POST['target_url'] ) ? trim( (string) wp_unslash( $_POST['target_url'] ) ) : '';
+
+			if ( $source_id <= 0 || '' === $anchor ) {
+				wp_send_json_error( array( 'message' => esc_html__( 'Manuel öneri bilgisi eksik.', 'linkflow-auditor' ) ), 400 );
+			}
+
+			if ( ! current_user_can( 'edit_post', $source_id ) ) {
+				wp_send_json_error( array( 'message' => esc_html__( 'Bu yazıyı düzenleme yetkiniz yok.', 'linkflow-auditor' ) ), 403 );
+			}
+
+			$target_url = $this->normalize_manual_target_url( $target );
+			if ( is_wp_error( $target_url ) ) {
+				wp_send_json_error( array( 'message' => $target_url->get_error_message() ), 400 );
+			}
+
+			$post = get_post( $source_id );
+			if ( ! $post instanceof WP_Post || 'publish' !== $post->post_status ) {
+				wp_send_json_error( array( 'message' => esc_html__( 'Kaynak içerik bulunamadı veya yayında değil.', 'linkflow-auditor' ) ), 404 );
+			}
+
+			if ( $this->source_already_links_to_url( $source_id, (string) $target_url ) ) {
+				wp_send_json_error( array( 'message' => esc_html__( 'Kaynak içerik bu hedef URL’ye zaten link veriyor.', 'linkflow-auditor' ) ), 400 );
+			}
+
+			$changed = $this->insert_internal_link_for_phrase( $post, $anchor, (string) $target_url );
+
+			if ( is_wp_error( $changed ) ) {
+				wp_send_json_error( array( 'message' => $changed->get_error_message() ), 400 );
+			}
+
+			if ( $changed < 1 ) {
+				wp_send_json_error( array( 'message' => esc_html__( 'Linklenecek ifade kaynak içerikte bulunamadı. Listeyi yenileyin.', 'linkflow-auditor' ) ), 404 );
+			}
+
+			wp_send_json_success(
+				array(
+					'message' => esc_html__( 'Manuel öneri uygulandı. Link eklendi.', 'linkflow-auditor' ),
+				)
+			);
+		}
+
+		/**
+		 * Find a saved suggestion by ID.
+		 *
+		 * @param string $suggestion_id Suggestion ID.
+		 * @return array<string,mixed>|null
+		 */
+		private function find_suggestion_by_id( string $suggestion_id ): ?array {
+			$report = $this->get_report();
+
+			foreach ( (array) ( $report['suggestions'] ?? array() ) as $suggestion ) {
+				if ( ! is_array( $suggestion ) ) {
+					continue;
+				}
+
+				if ( hash_equals( (string) ( $suggestion['id'] ?? '' ), $suggestion_id ) ) {
+					return $suggestion;
+				}
+			}
+
+			return null;
+		}
+
+		/**
+		 * Add the suggested internal link to the source post.
+		 *
+		 * @param array<string,mixed> $suggestion Suggestion row.
+		 * @return int|\WP_Error Number of links added, or error.
+		 */
+		private function apply_internal_link_suggestion( array $suggestion ) {
+			$source_id = (int) ( $suggestion['source_id'] ?? 0 );
+			$target_id = (int) ( $suggestion['target_id'] ?? 0 );
+			$anchor    = trim( (string) ( $suggestion['anchor'] ?? '' ) );
+
+			if ( $source_id <= 0 || $target_id <= 0 || '' === $anchor ) {
+				return new WP_Error( 'lfa_bad_suggestion', esc_html__( 'Öneri bilgisi geçersiz.', 'linkflow-auditor' ) );
+			}
+
+			$source = get_post( $source_id );
+			$target = get_post( $target_id );
+
+			if ( ! $source instanceof WP_Post || 'publish' !== $source->post_status ) {
+				return new WP_Error( 'lfa_no_source', esc_html__( 'Kaynak içerik bulunamadı veya yayında değil.', 'linkflow-auditor' ) );
+			}
+
+			if ( ! $target instanceof WP_Post || 'publish' !== $target->post_status ) {
+				return new WP_Error( 'lfa_no_target', esc_html__( 'Hedef içerik bulunamadı veya yayında değil.', 'linkflow-auditor' ) );
+			}
+
+			if ( $this->source_already_links_to_target( $source_id, $target_id ) ) {
+				return new WP_Error( 'lfa_already_linked', esc_html__( 'Kaynak içerik bu hedefe zaten link veriyor.', 'linkflow-auditor' ) );
+			}
+
+			$target_url = get_permalink( $target_id );
+			if ( ! $target_url ) {
+				return new WP_Error( 'lfa_no_target_url', esc_html__( 'Hedef URL alınamadı.', 'linkflow-auditor' ) );
+			}
+
+			return $this->insert_internal_link_for_phrase( $source, $anchor, (string) $target_url );
+		}
+
+		/**
+		 * Check whether a source post already links to the target post in stored content.
+		 *
+		 * @param int $source_id Source post ID.
+		 * @param int $target_id Target post ID.
+		 */
+		private function source_already_links_to_target( int $source_id, int $target_id ): bool {
+			$source = get_post( $source_id );
+			if ( ! $source instanceof WP_Post ) {
+				return false;
+			}
+
+			$source_url  = get_permalink( $source_id );
+			$target_data = $this->build_target_index( array( $target_id ) );
+			$url_index   = (array) ( $target_data['url_index'] ?? array() );
+
+			foreach ( $this->extract_links( (string) $source->post_content ) as $link ) {
+				$href       = (string) ( $link['href'] ?? '' );
+				$target_ids = $this->resolve_internal_href( $href, $url_index, (string) $source_url );
+
+				if ( in_array( $target_id, $target_ids, true ) ) {
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		/**
+		 * Insert a single internal link around the first safe phrase occurrence.
+		 *
+		 * @param WP_Post $post       Source post.
+		 * @param string  $anchor     Anchor phrase to wrap.
+		 * @param string  $target_url Target URL.
+		 * @return int|\WP_Error Number of links added, or error.
+		 */
+		private function insert_internal_link_for_phrase( WP_Post $post, string $anchor, string $target_url ) {
+			$content = (string) $post->post_content;
+
+			if ( '' === trim( $content ) || ! class_exists( 'DOMDocument' ) ) {
+				return new WP_Error( 'lfa_no_content', esc_html__( 'Yazı içeriği düzenlenemiyor.', 'linkflow-auditor' ) );
+			}
+
+			$charset  = get_bloginfo( 'charset' ) ?: 'UTF-8';
+			$document = new DOMDocument();
+			$previous = libxml_use_internal_errors( true );
+			$loaded   = $document->loadHTML(
+				'<!DOCTYPE html><html><head><meta http-equiv="Content-Type" content="text/html; charset=' . htmlspecialchars( $charset, ENT_QUOTES, 'UTF-8' ) . '"></head><body>' . $content . '</body></html>',
+				LIBXML_NOWARNING | LIBXML_NOERROR
+			);
+
+			libxml_clear_errors();
+			libxml_use_internal_errors( $previous );
+
+			if ( ! $loaded ) {
+				return new WP_Error( 'lfa_parse', esc_html__( 'Yazı içeriği işlenemedi.', 'linkflow-auditor' ) );
+			}
+
+			$body = $document->getElementsByTagName( 'body' )->item( 0 );
+			if ( ! $body ) {
+				return new WP_Error( 'lfa_parse', esc_html__( 'Yazı içeriği işlenemedi.', 'linkflow-auditor' ) );
+			}
+
+			$changed = 0;
+			foreach ( $body->childNodes as $child ) {
+				if ( $this->link_first_phrase_in_node( $document, $child, $anchor, $target_url, false ) ) {
+					$changed = 1;
+					break;
+				}
+			}
+
+			if ( $changed < 1 ) {
+				return 0;
+			}
+
+			$new_html = '';
+			foreach ( $body->childNodes as $child ) {
+				$new_html .= $document->saveHTML( $child );
+			}
+
+			$result = wp_update_post(
+				array(
+					'ID'           => (int) $post->ID,
+					'post_content' => $new_html,
+				),
+				true
+			);
+
+			if ( is_wp_error( $result ) ) {
+				return $result;
+			}
+
+			return $changed;
+		}
+
+		/**
+		 * Recursively link the first safe occurrence inside a DOM node.
+		 *
+		 * @param DOMDocument $document   DOM document.
+		 * @param DOMNode     $node       Current node.
+		 * @param string      $anchor     Anchor phrase.
+		 * @param string      $target_url Target URL.
+		 * @param bool        $blocked    Whether an ancestor is not linkable.
+		 */
+		private function link_first_phrase_in_node( DOMDocument $document, DOMNode $node, string $anchor, string $target_url, bool $blocked ): bool {
+			if ( XML_TEXT_NODE === $node->nodeType ) {
+				return ! $blocked && $this->link_phrase_in_text_node( $document, $node, $anchor, $target_url );
+			}
+
+			if ( XML_ELEMENT_NODE === $node->nodeType ) {
+				$name = $this->mb_lower( (string) $node->nodeName );
+				if ( in_array( $name, array( 'a', 'script', 'style', 'textarea', 'code', 'pre', 'kbd', 'samp' ), true ) ) {
+					$blocked = true;
+				}
+			}
+
+			if ( ! $node->hasChildNodes() ) {
+				return false;
+			}
+
+			$children = array();
+			foreach ( $node->childNodes as $child ) {
+				$children[] = $child;
+			}
+
+			foreach ( $children as $child ) {
+				if ( $this->link_first_phrase_in_node( $document, $child, $anchor, $target_url, $blocked ) ) {
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		/**
+		 * Wrap a matching phrase inside one text node.
+		 *
+		 * @param DOMDocument $document   DOM document.
+		 * @param DOMNode     $node       Text node.
+		 * @param string      $anchor     Anchor phrase.
+		 * @param string      $target_url Target URL.
+		 */
+		private function link_phrase_in_text_node( DOMDocument $document, DOMNode $node, string $anchor, string $target_url ): bool {
+			$text = (string) $node->nodeValue;
+
+			if ( ! $this->is_linkable_text_value( $text ) ) {
+				return false;
+			}
+
+			$length = $this->mb_strlen( $anchor );
+			$offset = 0;
+
+			while ( true ) {
+				$position = $this->mb_stripos_safe( $text, $anchor, $offset );
+				if ( $position < 0 ) {
+					return false;
+				}
+
+				if ( $this->is_phrase_boundary_match( $text, $position, $length ) ) {
+					break;
+				}
+
+				$offset = $position + max( 1, $length );
+			}
+
+			$parent = $node->parentNode;
+			if ( ! $parent ) {
+				return false;
+			}
+
+			$before = $this->mb_substr( $text, 0, $position );
+			$match  = $this->mb_substr( $text, $position, $length );
+			$after  = $this->mb_substr( $text, $position + $length );
+
+			if ( '' !== $before ) {
+				$parent->insertBefore( $document->createTextNode( $before ), $node );
+			}
+
+			$link = $document->createElement( 'a' );
+			$link->setAttribute( 'href', esc_url_raw( $target_url ) );
+			$link->appendChild( $document->createTextNode( $match ) );
+			$parent->insertBefore( $link, $node );
+
+			if ( '' !== $after ) {
+				$parent->insertBefore( $document->createTextNode( $after ), $node );
+			}
+
+			$parent->removeChild( $node );
+
+			return true;
+		}
+
+		/**
+		 * Remove accepted suggestions from the saved report.
+		 *
+		 * @param string $suggestion_id Suggestion ID.
+		 * @param int    $source_id     Source post ID.
+		 * @param int    $target_id     Target post ID.
+		 */
+		private function update_report_after_suggestion_accept( string $suggestion_id, int $source_id, int $target_id ): int {
+			$report = $this->get_report();
+			$kept   = array();
+
+			foreach ( (array) ( $report['suggestions'] ?? array() ) as $suggestion ) {
+				if ( ! is_array( $suggestion ) ) {
+					continue;
+				}
+
+				$same_id     = hash_equals( (string) ( $suggestion['id'] ?? '' ), $suggestion_id );
+				$same_pair   = (int) ( $suggestion['source_id'] ?? 0 ) === $source_id && (int) ( $suggestion['target_id'] ?? 0 ) === $target_id;
+
+				if ( $same_id || $same_pair ) {
+					continue;
+				}
+
+				$kept[] = $suggestion;
+			}
+
+			$report['suggestions']      = array_values( $kept );
+			$report['suggestion_count'] = count( $report['suggestions'] );
+
+			$this->update_nonautoload_option( self::REPORT_OPTION, $report );
+
+			return (int) $report['suggestion_count'];
+		}
+
+		/**
+		 * Remove a dismissed suggestion from the saved report.
+		 *
+		 * @param string $suggestion_id Suggestion ID.
+		 */
+		private function update_report_after_suggestion_dismiss( string $suggestion_id ): int {
+			$report = $this->get_report();
+			$kept   = array();
+
+			foreach ( (array) ( $report['suggestions'] ?? array() ) as $suggestion ) {
+				if ( ! is_array( $suggestion ) ) {
+					continue;
+				}
+
+				if ( hash_equals( (string) ( $suggestion['id'] ?? '' ), $suggestion_id ) ) {
+					continue;
+				}
+
+				$kept[] = $suggestion;
+			}
+
+			$report['suggestions']      = array_values( $kept );
+			$report['suggestion_count'] = count( $report['suggestions'] );
+
+			$this->update_nonautoload_option( self::REPORT_OPTION, $report );
+
+			return (int) $report['suggestion_count'];
+		}
+
+		/**
+		 * Normalize and validate a manual target URL.
+		 *
+		 * @param string $target Raw target input.
+		 * @return string|\WP_Error
+		 */
+		private function normalize_manual_target_url( string $target ) {
+			$target = trim( $target );
+
+			if ( '' === $target ) {
+				return new WP_Error( 'lfa_manual_target_empty', esc_html__( 'Lütfen hedef URL girin.', 'linkflow-auditor' ) );
+			}
+
+			$target_key = $this->mb_lower( $target );
+			if ( in_array( $target_key, array( 'ana sayfa', 'anasayfa', 'home', 'homepage' ), true ) ) {
+				return home_url( '/' );
+			}
+
+			if ( false !== strpos( $target, ' ' ) ) {
+				return new WP_Error( 'lfa_manual_target_bad', esc_html__( 'Hedef alanına geçerli bir URL girin.', 'linkflow-auditor' ) );
+			}
+
+			$parts = $this->parse_href( $target, home_url( '/' ) );
+			if ( empty( $parts ) || ! $this->is_internal_url_parts( $parts ) ) {
+				return new WP_Error( 'lfa_manual_target_external', esc_html__( 'Manuel öneriler yalnızca sitenin kendi iç URL’leri için oluşturulur.', 'linkflow-auditor' ) );
+			}
+
+			$url = $this->build_url_from_parts( $parts );
+			if ( '' === $url ) {
+				return new WP_Error( 'lfa_manual_target_bad', esc_html__( 'Hedef alanına geçerli bir URL girin.', 'linkflow-auditor' ) );
+			}
+
+			return $url;
+		}
+
+		/**
+		 * Build up to 25 manual suggestions for a phrase and internal target URL.
+		 *
+		 * @param string $anchor     Phrase to find.
+		 * @param string $target_url Internal target URL.
+		 * @param string $sort       Sort mode.
+		 * @return array<int,array<string,mixed>>
+		 */
+		private function build_manual_link_suggestions( string $anchor, string $target_url, string $sort ): array {
+			$ids = $this->get_content_ids();
+			if ( empty( $ids ) ) {
+				return array();
+			}
+
+			$row_map = $this->get_report_row_map();
+			$posts   = get_posts(
+				array(
+					'post__in'               => $ids,
+					'post_type'              => 'any',
+					'post_status'            => 'publish',
+					'posts_per_page'         => count( $ids ),
+					'orderby'                => 'post__in',
+					'no_found_rows'          => true,
+					'update_post_meta_cache' => false,
+					'update_post_term_cache' => false,
+					'suppress_filters'       => false,
+				)
+			);
+
+			$suggestions = array();
+			foreach ( $posts as $post ) {
+				if ( ! $post instanceof WP_Post ) {
+					continue;
+				}
+
+				$source_id  = (int) $post->ID;
+				$source_url = get_permalink( $source_id );
+				if ( ! $source_url || $this->normalize_link_url_for_compare( (string) $source_url, (string) $source_url ) === $this->normalize_link_url_for_compare( $target_url, (string) $source_url ) ) {
+					continue;
+				}
+
+				if ( $this->source_already_links_to_url( $source_id, $target_url ) ) {
+					continue;
+				}
+
+				$segments = $this->extract_linkable_text_segments( (string) $post->post_content );
+				$match    = $this->find_phrase_in_segments( $segments, $anchor );
+				if ( empty( $match ) ) {
+					continue;
+				}
+
+				$row          = (array) ( $row_map[ $source_id ] ?? array() );
+				$published_at = isset( $row['published_at'] ) ? (int) $row['published_at'] : (int) get_post_time( 'U', false, $source_id );
+
+				$suggestions[] = array(
+					'id'                       => substr( hash( 'sha256', 'manual|' . $source_id . '|' . $target_url . '|' . $this->mb_lower( $anchor ) ), 0, 18 ),
+					'source_id'                => $source_id,
+					'source_title'             => $this->get_source_title( $post ),
+					'source_url'               => (string) $source_url,
+					'source_outgoing_links'    => isset( $row['outgoing_links'] ) ? (int) $row['outgoing_links'] : count( $this->extract_links( (string) $post->post_content ) ),
+					'source_incoming_sources'  => isset( $row['incoming_sources'] ) ? (int) $row['incoming_sources'] : 0,
+					'source_published_at'      => $published_at,
+					'target_url'               => $target_url,
+					'anchor'                   => (string) ( $match['match'] ?? $anchor ),
+					'context_before'           => (string) ( $match['before'] ?? '' ),
+					'context_match'            => (string) ( $match['match'] ?? $anchor ),
+					'context_after'            => (string) ( $match['after'] ?? '' ),
+				);
+			}
+
+			usort(
+				$suggestions,
+				static function ( array $a, array $b ) use ( $sort ): int {
+					if ( 'oldest' === $sort ) {
+						return ( $a['source_published_at'] ?? 0 ) <=> ( $b['source_published_at'] ?? 0 );
+					}
+
+					if ( 'newest' === $sort ) {
+						return ( $b['source_published_at'] ?? 0 ) <=> ( $a['source_published_at'] ?? 0 );
+					}
+
+					$link_cmp = ( $a['source_incoming_sources'] ?? 0 ) <=> ( $b['source_incoming_sources'] ?? 0 );
+					if ( 0 !== $link_cmp ) {
+						return $link_cmp;
+					}
+
+					return ( $a['source_published_at'] ?? 0 ) <=> ( $b['source_published_at'] ?? 0 );
+				}
+			);
+
+			return array_slice( $suggestions, 0, self::MANUAL_SUGGESTION_LIMIT );
+		}
+
+		/**
+		 * Render manual search results as safe HTML.
+		 *
+		 * @param array<int,array<string,mixed>> $suggestions Suggestions.
+		 * @param string                         $target_url  Target URL.
+		 */
+		private function render_manual_suggestions_results( array $suggestions, string $target_url ): string {
+			if ( empty( $suggestions ) ) {
+				return '<p class="lfa-empty">' . esc_html__( 'Uygun düz metin eşleşmesi bulunamadı.', 'linkflow-auditor' ) . '</p>';
+			}
+
+			ob_start();
+			printf(
+				'<div class="lfa-manual-result-summary">%s <strong>%s</strong></div>',
+				esc_html__( 'Hedef:', 'linkflow-auditor' ),
+				$this->render_url_cell( $target_url )
+			);
+			echo '<div class="lfa-table-wrap"><table class="widefat striped lfa-status-table lfa-suggestion-table"><thead><tr>';
+			echo '<th>' . esc_html__( 'Kaynak içerik', 'linkflow-auditor' ) . '</th>';
+			echo '<th>' . esc_html__( 'Linklenecek ifade', 'linkflow-auditor' ) . '</th>';
+			echo '<th>' . esc_html__( 'İşlem', 'linkflow-auditor' ) . '</th>';
+			echo '</tr></thead><tbody>';
+
+			foreach ( $suggestions as $suggestion ) {
+				echo '<tr class="lfa-manual-suggestion-row">';
+				echo '<td>' . $this->health_title_cell( (string) ( $suggestion['source_title'] ?? '' ), (string) ( $suggestion['source_url'] ?? '' ) ) . $this->render_suggestion_source_meta( $suggestion ) . '</td>';
+				echo '<td>' . $this->render_suggestion_context( $suggestion ) . '</td>';
+				echo '<td>' . $this->render_manual_suggestion_action( $suggestion, $target_url ) . '</td>';
+				echo '</tr>';
+			}
+
+			echo '</tbody></table></div>';
+
+			return (string) ob_get_clean();
+		}
+
+		/**
+		 * Render accept action for a manual suggestion row.
+		 *
+		 * @param array<string,mixed> $suggestion Suggestion.
+		 * @param string              $target_url Target URL.
+		 */
+		private function render_manual_suggestion_action( array $suggestion, string $target_url ): string {
+			$source_id = isset( $suggestion['source_id'] ) ? (int) $suggestion['source_id'] : 0;
+			$anchor    = (string) ( $suggestion['anchor'] ?? '' );
+
+			if ( $source_id <= 0 || '' === trim( $anchor ) ) {
+				return '&mdash;';
+			}
+
+			return sprintf(
+				'<button type="button" class="button button-small button-primary lfa-accept-manual-suggestion" data-source-id="%d" data-anchor="%s" data-target-url="%s">%s</button>',
+				$source_id,
+				esc_attr( $anchor ),
+				esc_attr( $target_url ),
+				esc_html__( 'Kabul et', 'linkflow-auditor' )
+			);
+		}
+
+		/**
+		 * Return saved internal report rows keyed by post ID.
+		 *
+		 * @return array<int,array<string,mixed>>
+		 */
+		private function get_report_row_map(): array {
+			$report = $this->get_report();
+			$map    = array();
+
+			foreach ( (array) ( $report['rows'] ?? array() ) as $row ) {
+				if ( ! is_array( $row ) ) {
+					continue;
+				}
+
+				$id = (int) ( $row['id'] ?? 0 );
+				if ( $id > 0 ) {
+					$map[ $id ] = $row;
+				}
+			}
+
+			return $map;
+		}
+
+		/**
+		 * Check whether a source post already links to a normalized URL.
+		 *
+		 * @param int    $source_id  Source post ID.
+		 * @param string $target_url Target URL.
+		 */
+		private function source_already_links_to_url( int $source_id, string $target_url ): bool {
+			$post = get_post( $source_id );
+			if ( ! $post instanceof WP_Post ) {
+				return false;
+			}
+
+			$source_url = (string) get_permalink( $source_id );
+			$target     = $this->normalize_link_url_for_compare( $target_url, $source_url );
+
+			if ( '' === $target ) {
+				return false;
+			}
+
+			foreach ( $this->extract_links( (string) $post->post_content ) as $link ) {
+				$href = $this->normalize_link_url_for_compare( (string) ( $link['href'] ?? '' ), $source_url );
+
+				if ( '' !== $href && $href === $target ) {
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		/**
+		 * Normalize a URL for internal link duplicate comparison.
+		 *
+		 * @param string $url        Raw URL/href.
+		 * @param string $source_url Source permalink for relative hrefs.
+		 */
+		private function normalize_link_url_for_compare( string $url, string $source_url ): string {
+			$parts = $this->parse_href( trim( $url ), '' !== $source_url ? $source_url : home_url( '/' ) );
+
+			if ( empty( $parts ) || ! $this->is_internal_url_parts( $parts ) ) {
+				return '';
+			}
+
+			$scheme = strtolower( (string) ( $parts['scheme'] ?? 'https' ) );
+			$host   = $this->normalize_host( (string) ( $parts['host'] ?? '' ) );
+			$path   = isset( $parts['path'] ) ? $this->normalize_path( (string) $parts['path'] ) : '/';
+			$query  = isset( $parts['query'] ) && '' !== (string) $parts['query'] ? '?' . (string) $parts['query'] : '';
+
+			if ( '' === $host ) {
+				return '';
+			}
+
+			return $scheme . '://' . $host . $path . $query;
 		}
 
 		/**
@@ -2214,6 +3294,43 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 			}
 
 			/**
+			 * Get dismissed suggestion IDs as a lookup map.
+			 *
+			 * @return array<string,bool>
+			 */
+			private function get_ignored_suggestion_ids(): array {
+				$stored = get_option( self::IGNORED_SUGGESTIONS_OPTION, array() );
+				$ids    = array();
+
+				foreach ( (array) $stored as $id ) {
+					$id = sanitize_key( (string) $id );
+					if ( '' !== $id ) {
+						$ids[ $id ] = true;
+					}
+				}
+
+				return $ids;
+			}
+
+			/**
+			 * Persist dismissed suggestion IDs.
+			 *
+			 * @param array<string,bool> $ids Suggestion ID map.
+			 */
+			private function save_ignored_suggestion_ids( array $ids ): void {
+				$clean = array();
+
+				foreach ( array_keys( $ids ) as $id ) {
+					$id = sanitize_key( (string) $id );
+					if ( '' !== $id ) {
+						$clean[] = $id;
+					}
+				}
+
+				$this->update_nonautoload_option( self::IGNORED_SUGGESTIONS_OPTION, array_values( array_unique( $clean ) ) );
+			}
+
+			/**
 			 * Default persistent settings.
 			 *
 			 * @return array<string,mixed>
@@ -2366,6 +3483,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 						continue;
 					}
 
+					$post = get_post( $id );
 					$edit_url = get_edit_post_link( $id, '' );
 					if ( ! $edit_url ) {
 						$edit_url = add_query_arg(
@@ -2378,11 +3496,13 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					}
 
 					$targets[ $id ] = array(
-						'id'       => $id,
-						'title'    => get_the_title( $id ),
-						'type'     => get_post_type( $id ),
-						'url'      => $url,
-						'edit_url' => $edit_url,
+						'id'                 => $id,
+						'title'              => get_the_title( $id ),
+						'type'               => get_post_type( $id ),
+						'url'                => $url,
+						'edit_url'           => $edit_url,
+						'published_at'       => $post instanceof WP_Post ? (int) get_post_time( 'U', false, $id ) : 0,
+						'suggestion_phrases' => $this->build_suggestion_phrases( $id, $url ),
 					);
 
 				foreach ( $this->get_url_index_keys( $url, $id ) as $key ) {
@@ -2419,6 +3539,167 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				'targets'   => $targets,
 				'url_index' => $url_index,
 			);
+		}
+
+		/**
+		 * Build safe anchor phrases from a target's title and slug.
+		 *
+		 * @param int    $post_id Target post ID.
+		 * @param string $url     Target permalink.
+		 * @return string[]
+		 */
+		private function build_suggestion_phrases( int $post_id, string $url ): array {
+			$phrases = array();
+			$title   = html_entity_decode( wp_strip_all_tags( (string) get_the_title( $post_id ) ), ENT_QUOTES, get_bloginfo( 'charset' ) ?: 'UTF-8' );
+
+			$this->add_suggestion_phrase( $phrases, $title );
+			$this->add_suggestion_phrase( $phrases, $this->build_core_suggestion_phrase( $title ) );
+			$this->add_suggestion_phrase( $phrases, $this->build_slug_suggestion_phrase( $url ) );
+
+			$values = array_values( $phrases );
+			usort(
+				$values,
+				function ( string $a, string $b ): int {
+					$word_cmp = $this->suggestion_word_count( $b ) <=> $this->suggestion_word_count( $a );
+					if ( 0 !== $word_cmp ) {
+						return $word_cmp;
+					}
+
+					return $this->mb_strlen( $b ) <=> $this->mb_strlen( $a );
+				}
+			);
+
+			return array_slice( $values, 0, 5 );
+		}
+
+		/**
+		 * Add a normalized suggestion phrase when it is specific enough.
+		 *
+		 * @param array<string,string> $phrases Phrase map keyed by lowercase value.
+		 * @param string               $phrase  Candidate phrase.
+		 */
+		private function add_suggestion_phrase( array &$phrases, string $phrase ): void {
+			$phrase = $this->normalize_suggestion_phrase( $phrase );
+
+			if ( '' === $phrase || ! $this->is_valid_suggestion_phrase( $phrase ) ) {
+				return;
+			}
+
+			$phrases[ $this->mb_lower( $phrase ) ] = $phrase;
+		}
+
+		/**
+		 * Normalize titles/slugs into a phrase that can be searched in text.
+		 *
+		 * @param string $phrase Raw phrase.
+		 */
+		private function normalize_suggestion_phrase( string $phrase ): string {
+			$phrase = html_entity_decode( wp_strip_all_tags( $phrase ), ENT_QUOTES, get_bloginfo( 'charset' ) ?: 'UTF-8' );
+			$phrase = str_replace( array( 'İ', "i\u{0307}" ), 'i', $phrase );
+			$phrase = str_replace( array( '-', '_', '/', '\\' ), ' ', $phrase );
+			$phrase = preg_replace( '/[^\p{L}\p{N}\s&#+.]+/u', ' ', $phrase );
+			$phrase = preg_replace( '/\s+/u', ' ', (string) $phrase );
+
+			return trim( (string) $phrase );
+		}
+
+		/**
+		 * Whether an anchor suggestion is specific enough to avoid noisy one-word links.
+		 *
+		 * @param string $phrase Normalized phrase.
+		 */
+		private function is_valid_suggestion_phrase( string $phrase ): bool {
+			$length = $this->mb_strlen( $phrase );
+			$words  = $this->suggestion_word_count( $phrase );
+
+			if ( $length < 4 || $words > 8 ) {
+				return false;
+			}
+
+			if ( $words < 2 && $length < 8 ) {
+				return false;
+			}
+
+			return ! in_array( $this->mb_lower( $phrase ), $this->generic_anchor_texts(), true );
+		}
+
+		/**
+		 * Build a shorter title phrase by dropping question/helper words.
+		 *
+		 * @param string $title Target title.
+		 */
+		private function build_core_suggestion_phrase( string $title ): string {
+			$normalized = $this->normalize_suggestion_phrase( $title );
+			$words      = $this->split_suggestion_words( $normalized );
+
+			if ( count( $words ) < 3 ) {
+				return '';
+			}
+
+			$noise = array(
+				'nasıl', 'nasil', 'yapılır', 'yapilir', 'nedir', 'ne', 'demek',
+				'rehberi', 'kilavuzu', 'kılavuzu', 'icin', 'için', 've', 'ile',
+				'bir', 'en', 'iyi', 'pratikleri', 'örnekleri', 'ornekleri',
+			);
+
+			$kept = array();
+			foreach ( $words as $word ) {
+				if ( in_array( $this->mb_lower( $word ), $noise, true ) ) {
+					continue;
+				}
+
+				$kept[] = $word;
+			}
+
+			if ( count( $kept ) < 2 ) {
+				return '';
+			}
+
+			return implode( ' ', array_slice( $kept, 0, 5 ) );
+		}
+
+		/**
+		 * Build an anchor phrase from the target URL slug.
+		 *
+		 * @param string $url Target URL.
+		 */
+		private function build_slug_suggestion_phrase( string $url ): string {
+			$parts = wp_parse_url( $url );
+
+			if ( ! is_array( $parts ) || empty( $parts['path'] ) ) {
+				return '';
+			}
+
+			$path = trim( (string) $parts['path'], '/' );
+			if ( '' === $path ) {
+				return '';
+			}
+
+			$segments = explode( '/', $path );
+			$slug     = rawurldecode( (string) end( $segments ) );
+
+			return str_replace( array( '-', '_' ), ' ', $slug );
+		}
+
+		/**
+		 * Split a suggestion phrase into words.
+		 *
+		 * @param string $phrase Phrase.
+		 * @return string[]
+		 */
+		private function split_suggestion_words( string $phrase ): array {
+			$words = preg_split( '/\s+/u', trim( $phrase ) );
+
+			return array_values( array_filter( is_array( $words ) ? $words : array(), 'strlen' ) );
+		}
+
+		/**
+		 * Count words in a suggestion phrase.
+		 *
+		 * @param string $phrase Phrase.
+		 */
+		private function suggestion_word_count( string $phrase ): int {
+			return count( $this->split_suggestion_words( $phrase ) );
 		}
 
 		/**
@@ -2514,6 +3795,10 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 						}
 					}
 
+					if ( $should_count_internal ) {
+						$this->collect_internal_link_suggestion_candidates( $state, $post, (string) $source_url, $linked_targets );
+					}
+
 				foreach ( array_keys( $linked_targets ) as $target_id ) {
 					if ( ! isset( $state['incoming_sources'][ $target_id ] ) ) {
 						$state['incoming_sources'][ $target_id ] = 0;
@@ -2599,6 +3884,263 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				) {
 					$state['incoming_details'][ $target_id ][ $source_id ]['anchors'][] = $anchor_text;
 				}
+			}
+
+			/**
+			 * Collect internal-link suggestion candidates for one source post.
+			 *
+			 * @param array<string,mixed> $state          Scan state, passed by reference.
+			 * @param WP_Post             $post           Source post.
+			 * @param string              $source_url     Source permalink.
+			 * @param array<int,bool>     $linked_targets Targets already linked from this source.
+			 */
+			private function collect_internal_link_suggestion_candidates( array &$state, WP_Post $post, string $source_url, array $linked_targets ): void {
+				if ( (int) ( $state['suggestion_total'] ?? 0 ) >= self::SUGGESTION_LIST_CAP ) {
+					return;
+				}
+
+				$content = (string) $post->post_content;
+				if ( '' === trim( $content ) || ! class_exists( 'DOMDocument' ) ) {
+					return;
+				}
+
+				$segments = $this->extract_linkable_text_segments( $content );
+				if ( empty( $segments ) ) {
+					return;
+				}
+
+				$haystack  = $this->mb_lower( implode( ' ', $segments ) );
+				$source_id = (int) $post->ID;
+				$targets   = (array) ( $state['targets'] ?? array() );
+				$source    = isset( $targets[ $source_id ] ) && is_array( $targets[ $source_id ] ) ? $targets[ $source_id ] : array();
+				$added     = 0;
+
+				foreach ( $targets as $target_id => $target ) {
+					$target_id = (int) $target_id;
+
+					if ( $target_id <= 0 || $target_id === $source_id || isset( $linked_targets[ $target_id ] ) || ! is_array( $target ) ) {
+						continue;
+					}
+
+					foreach ( (array) ( $target['suggestion_phrases'] ?? array() ) as $phrase ) {
+						$phrase = (string) $phrase;
+
+						if ( '' === $phrase || false === strpos( $haystack, $this->mb_lower( $phrase ) ) ) {
+							continue;
+						}
+
+						$match = $this->find_phrase_in_segments( $segments, $phrase );
+						if ( empty( $match ) ) {
+							continue;
+						}
+
+						$state['suggestion_candidates'][] = array(
+							'source_id'      => $source_id,
+							'source_title'   => (string) ( $source['title'] ?? $this->get_source_title( $post ) ),
+							'source_url'     => $source_url,
+							'source_edit_url' => (string) ( $source['edit_url'] ?? get_edit_post_link( $source_id, '' ) ),
+							'source_type'    => (string) ( $source['type'] ?? $post->post_type ),
+							'target_id'      => $target_id,
+							'target_title'   => (string) ( $target['title'] ?? '' ),
+							'target_url'     => (string) ( $target['url'] ?? '' ),
+							'target_edit_url' => (string) ( $target['edit_url'] ?? '' ),
+							'target_type'    => (string) ( $target['type'] ?? '' ),
+							'anchor'         => (string) ( $match['match'] ?? $phrase ),
+							'context_before' => (string) ( $match['before'] ?? '' ),
+							'context_match'  => (string) ( $match['match'] ?? $phrase ),
+							'context_after'  => (string) ( $match['after'] ?? '' ),
+							'phrase_words'   => $this->suggestion_word_count( $phrase ),
+						);
+
+						$state['suggestion_total'] = (int) ( $state['suggestion_total'] ?? 0 ) + 1;
+						++$added;
+						break;
+					}
+
+					if ( $added >= self::SUGGESTION_CANDIDATES_PER_SOURCE || (int) ( $state['suggestion_total'] ?? 0 ) >= self::SUGGESTION_LIST_CAP ) {
+						return;
+					}
+				}
+			}
+
+			/**
+			 * Extract text nodes that can be safely wrapped with an anchor.
+			 *
+			 * @param string $html Raw post content.
+			 * @return string[]
+			 */
+			private function extract_linkable_text_segments( string $html ): array {
+				if ( '' === trim( $html ) || ! class_exists( 'DOMDocument' ) ) {
+					return array();
+				}
+
+				$charset  = get_bloginfo( 'charset' ) ?: 'UTF-8';
+				$document = new DOMDocument();
+				$previous = libxml_use_internal_errors( true );
+				$loaded   = $document->loadHTML(
+					'<!DOCTYPE html><html><head><meta http-equiv="Content-Type" content="text/html; charset=' . htmlspecialchars( $charset, ENT_QUOTES, 'UTF-8' ) . '"></head><body>' . $html . '</body></html>',
+					LIBXML_NOWARNING | LIBXML_NOERROR
+				);
+
+				libxml_clear_errors();
+				libxml_use_internal_errors( $previous );
+
+				if ( ! $loaded ) {
+					return array();
+				}
+
+				$body     = $document->getElementsByTagName( 'body' )->item( 0 );
+				$segments = array();
+
+				if ( $body ) {
+					foreach ( $body->childNodes as $child ) {
+						$this->collect_linkable_text_segments_from_node( $child, $segments, false );
+					}
+				}
+
+				return $segments;
+			}
+
+			/**
+			 * Walk a DOM node tree and collect linkable text.
+			 *
+			 * @param DOMNode  $node     Current node.
+			 * @param string[] $segments Collected text segments.
+			 * @param bool     $blocked  Whether an ancestor is not linkable.
+			 */
+			private function collect_linkable_text_segments_from_node( DOMNode $node, array &$segments, bool $blocked ): void {
+				if ( XML_TEXT_NODE === $node->nodeType ) {
+					$text = (string) $node->nodeValue;
+
+					if ( ! $blocked && $this->is_linkable_text_value( $text ) ) {
+						$segments[] = $text;
+					}
+
+					return;
+				}
+
+				if ( XML_ELEMENT_NODE === $node->nodeType ) {
+					$name = $this->mb_lower( (string) $node->nodeName );
+					if ( in_array( $name, array( 'a', 'script', 'style', 'textarea', 'code', 'pre', 'kbd', 'samp' ), true ) ) {
+						$blocked = true;
+					}
+				}
+
+				if ( ! $node->hasChildNodes() ) {
+					return;
+				}
+
+				foreach ( $node->childNodes as $child ) {
+					$this->collect_linkable_text_segments_from_node( $child, $segments, $blocked );
+				}
+			}
+
+			/**
+			 * Whether a text node is safe enough for automated link wrapping.
+			 *
+			 * @param string $text Text node value.
+			 */
+			private function is_linkable_text_value( string $text ): bool {
+				if ( '' === trim( $text ) ) {
+					return false;
+				}
+
+				// Avoid editing shortcode text, where wrapping part of the string can
+				// break attributes or shortcode parsing.
+				if ( false !== strpos( $text, '[' ) && false !== strpos( $text, ']' ) ) {
+					return false;
+				}
+
+				return true;
+			}
+
+			/**
+			 * Find a phrase inside linkable text segments.
+			 *
+			 * @param string[] $segments Text segments.
+			 * @param string   $phrase   Candidate phrase.
+			 * @return array{before:string,match:string,after:string}|array{}
+			 */
+			private function find_phrase_in_segments( array $segments, string $phrase ): array {
+				$length = $this->mb_strlen( $phrase );
+
+				if ( $length <= 0 ) {
+					return array();
+				}
+
+				foreach ( $segments as $segment ) {
+					$offset = 0;
+
+					while ( true ) {
+						$position = $this->mb_stripos_safe( $segment, $phrase, $offset );
+						if ( $position < 0 ) {
+							break;
+						}
+
+						if ( $this->is_phrase_boundary_match( $segment, $position, $length ) ) {
+							return $this->build_suggestion_context( $segment, $position, $length );
+						}
+
+						$offset = $position + max( 1, $length );
+					}
+				}
+
+				return array();
+			}
+
+			/**
+			 * Build a short before/match/after context around a matched phrase.
+			 *
+			 * @param string $text     Source text segment.
+			 * @param int    $position Match position.
+			 * @param int    $length   Match length.
+			 * @return array{before:string,match:string,after:string}
+			 */
+			private function build_suggestion_context( string $text, int $position, int $length ): array {
+				$total        = $this->mb_strlen( $text );
+				$before_start = max( 0, $position - self::SUGGESTION_CONTEXT_RADIUS );
+				$after_start  = $position + $length;
+				$after_len    = max( 0, min( self::SUGGESTION_CONTEXT_RADIUS, $total - $after_start ) );
+				$before       = $this->mb_substr( $text, $before_start, $position - $before_start );
+				$match        = $this->mb_substr( $text, $position, $length );
+				$after        = $this->mb_substr( $text, $after_start, $after_len );
+
+				if ( $before_start > 0 ) {
+					$before = '…' . ltrim( $before );
+				}
+
+				if ( $after_start + $after_len < $total ) {
+					$after = rtrim( $after ) . '…';
+				}
+
+				return array(
+					'before' => $before,
+					'match'  => $match,
+					'after'  => $after,
+				);
+			}
+
+			/**
+			 * Ensure a phrase does not match inside a larger word.
+			 *
+			 * @param string $text     Text segment.
+			 * @param int    $position Match position.
+			 * @param int    $length   Match length.
+			 */
+			private function is_phrase_boundary_match( string $text, int $position, int $length ): bool {
+				$before = $position > 0 ? $this->mb_substr( $text, $position - 1, 1 ) : '';
+				$after  = $this->mb_substr( $text, $position + $length, 1 );
+
+				return ! $this->is_word_character( $before ) && ! $this->is_word_character( $after );
+			}
+
+			/**
+			 * Whether one character is a word character.
+			 *
+			 * @param string $char Character.
+			 */
+			private function is_word_character( string $char ): bool {
+				return '' !== $char && 1 === preg_match( '/^[\p{L}\p{N}_]$/u', $char );
 			}
 
 			/**
@@ -3487,10 +5029,61 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 		 */
 		private function mb_lower( string $value ): string {
 			if ( function_exists( 'mb_strtolower' ) ) {
-				return mb_strtolower( $value, 'UTF-8' );
+				return str_replace( "i\u{0307}", 'i', mb_strtolower( $value, 'UTF-8' ) );
 			}
 
 			return strtolower( $value );
+		}
+
+		/**
+		 * Multibyte-safe string length.
+		 *
+		 * @param string $value Value.
+		 */
+		private function mb_strlen( string $value ): int {
+			if ( function_exists( 'mb_strlen' ) ) {
+				return (int) mb_strlen( $value, 'UTF-8' );
+			}
+
+			return strlen( $value );
+		}
+
+		/**
+		 * Multibyte-safe substring.
+		 *
+		 * @param string   $value  Value.
+		 * @param int      $start  Start offset.
+		 * @param int|null $length Optional length.
+		 */
+		private function mb_substr( string $value, int $start, ?int $length = null ): string {
+			if ( function_exists( 'mb_substr' ) ) {
+				if ( null === $length ) {
+					return mb_substr( $value, $start, null, 'UTF-8' );
+				}
+
+				return mb_substr( $value, $start, $length, 'UTF-8' );
+			}
+
+			return null === $length ? substr( $value, $start ) : substr( $value, $start, $length );
+		}
+
+		/**
+		 * Multibyte-safe case-insensitive substring search.
+		 *
+		 * @param string $haystack Text to search.
+		 * @param string $needle   Phrase to find.
+		 * @param int    $offset   Search offset.
+		 */
+		private function mb_stripos_safe( string $haystack, string $needle, int $offset = 0 ): int {
+			if ( '' === $needle ) {
+				return -1;
+			}
+
+			$position = function_exists( 'mb_stripos' )
+				? mb_stripos( $haystack, $needle, $offset, 'UTF-8' )
+				: stripos( $haystack, $needle, $offset );
+
+			return false === $position ? -1 : (int) $position;
 		}
 
 		/**
@@ -3596,10 +5189,10 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 		 * @param array<int,array<string,mixed>> $rows  Finalized target rows.
 		 * @return array<string,mixed>
 		 */
-		private function build_health_report( array $state, array $rows ): array {
-			$orphans    = array();
-			$dead_ends  = array();
-			$duplicates = array();
+			private function build_health_report( array $state, array $rows ): array {
+				$orphans    = array();
+				$dead_ends  = array();
+				$duplicates = array();
 
 			foreach ( $rows as $row ) {
 				if ( ! is_array( $row ) ) {
@@ -3645,8 +5238,142 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				'insecure'       => array_values( array_filter( (array) ( $state['health_insecure'] ?? array() ), 'is_array' ) ),
 				'insecure_total' => (int) ( $state['health_insecure_total'] ?? 0 ),
 				'weak_anchor'    => array_values( array_filter( (array) ( $state['health_weak_anchor'] ?? array() ), 'is_array' ) ),
-				'weak_total'     => (int) ( $state['health_weak_total'] ?? 0 ),
+					'weak_total'     => (int) ( $state['health_weak_total'] ?? 0 ),
+				);
+			}
+
+		/**
+		 * Build prioritized internal link suggestions from collected candidates.
+		 *
+		 * @param array<string,mixed>            $state Scan state.
+		 * @param array<int,array<string,mixed>> $rows  Finalized internal rows.
+		 * @return array<int,array<string,mixed>>
+		 */
+		private function build_suggestion_report( array $state, array $rows ): array {
+			$candidates = array_values( array_filter( (array) ( $state['suggestion_candidates'] ?? array() ), 'is_array' ) );
+
+			if ( empty( $candidates ) ) {
+				return array();
+			}
+
+			$row_map      = array();
+			$max_incoming = 0;
+			$ignored      = $this->get_ignored_suggestion_ids();
+
+			foreach ( $rows as $row ) {
+				$target_id = (int) ( $row['id'] ?? 0 );
+				if ( $target_id <= 0 ) {
+					continue;
+				}
+
+				$incoming_sources = (int) ( $row['incoming_sources'] ?? 0 );
+				$row_map[ $target_id ] = $row;
+				$max_incoming = max( $max_incoming, $incoming_sources );
+			}
+
+			$deduped = array();
+
+			foreach ( $candidates as $candidate ) {
+				$source_id = (int) ( $candidate['source_id'] ?? 0 );
+				$target_id = (int) ( $candidate['target_id'] ?? 0 );
+				$anchor    = trim( (string) ( $candidate['anchor'] ?? '' ) );
+
+				if ( $source_id <= 0 || $target_id <= 0 || $source_id === $target_id || '' === $anchor || empty( $row_map[ $target_id ] ) ) {
+					continue;
+				}
+
+				$key = $source_id . '|' . $target_id . '|' . $this->mb_lower( $anchor );
+				$suggestion_id = substr( hash( 'sha256', $key ), 0, 18 );
+
+				if ( isset( $ignored[ $suggestion_id ] ) ) {
+					continue;
+				}
+
+				if ( isset( $deduped[ $key ] ) ) {
+					continue;
+				}
+
+				$target_row = $row_map[ $target_id ];
+				$source_row = (array) ( $row_map[ $source_id ] ?? array() );
+				$incoming   = (int) ( $target_row['incoming_sources'] ?? 0 );
+				$words      = max( 1, (int) ( $candidate['phrase_words'] ?? $this->suggestion_word_count( $anchor ) ) );
+				$score      = max( 1, $max_incoming + 1 - $incoming ) * 20 + min( 45, $words * 7 );
+
+				if ( (string) ( $candidate['source_type'] ?? '' ) === (string) ( $candidate['target_type'] ?? '' ) ) {
+					$score += 5;
+				}
+
+				$deduped[ $key ] = array_merge(
+					$candidate,
+					array(
+						'id'                      => $suggestion_id,
+						'source_outgoing_links'   => (int) ( $source_row['outgoing_links'] ?? 0 ),
+						'source_incoming_sources' => (int) ( $source_row['incoming_sources'] ?? 0 ),
+						'source_published_at'     => (int) ( $source_row['published_at'] ?? 0 ),
+						'target_incoming_sources' => $incoming,
+						'target_incoming_links'   => (int) ( $target_row['incoming_links'] ?? 0 ),
+						'score'                   => $score,
+						'reason'                  => 0 === $incoming
+							? __( 'Hedef sayfa henüz iç link almıyor; ifade kaynak içerikte geçiyor.', 'linkflow-auditor' )
+							: __( 'Hedef sayfa daha az iç link alıyor; ifade kaynak içerikte geçiyor.', 'linkflow-auditor' ),
+					)
+				);
+			}
+
+			$suggestions = array_values( $deduped );
+
+			usort(
+				$suggestions,
+				static function ( array $a, array $b ): int {
+					$incoming_cmp = ( $a['target_incoming_sources'] ?? 0 ) <=> ( $b['target_incoming_sources'] ?? 0 );
+					if ( 0 !== $incoming_cmp ) {
+						return $incoming_cmp;
+					}
+
+					$score_cmp = ( $b['score'] ?? 0 ) <=> ( $a['score'] ?? 0 );
+					if ( 0 !== $score_cmp ) {
+						return $score_cmp;
+					}
+
+					$source_cmp = strcasecmp( (string) ( $a['source_title'] ?? '' ), (string) ( $b['source_title'] ?? '' ) );
+					if ( 0 !== $source_cmp ) {
+						return $source_cmp;
+					}
+
+					return strcasecmp( (string) ( $a['target_title'] ?? '' ), (string) ( $b['target_title'] ?? '' ) );
+				}
 			);
+
+			$limited     = array();
+			$per_source  = array();
+			$per_target  = array();
+
+			foreach ( $suggestions as $suggestion ) {
+				$source_id = (int) ( $suggestion['source_id'] ?? 0 );
+				$target_id = (int) ( $suggestion['target_id'] ?? 0 );
+
+				if ( $source_id <= 0 || $target_id <= 0 ) {
+					continue;
+				}
+
+				if ( (int) ( $per_source[ $source_id ] ?? 0 ) >= self::SUGGESTIONS_PER_SOURCE ) {
+					continue;
+				}
+
+				if ( (int) ( $per_target[ $target_id ] ?? 0 ) >= self::SUGGESTIONS_PER_TARGET ) {
+					continue;
+				}
+
+				$limited[] = $suggestion;
+				$per_source[ $source_id ] = (int) ( $per_source[ $source_id ] ?? 0 ) + 1;
+				$per_target[ $target_id ] = (int) ( $per_target[ $target_id ] ?? 0 ) + 1;
+
+				if ( count( $limited ) >= self::SUGGESTION_LIST_CAP ) {
+					break;
+				}
+			}
+
+			return $limited;
 		}
 
 		/**
@@ -3700,6 +5427,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 							'type'             => (string) ( $target['type'] ?? '' ),
 							'url'              => (string) ( $target['url'] ?? '' ),
 							'edit_url'         => (string) ( $target['edit_url'] ?? '' ),
+							'published_at'     => isset( $target['published_at'] ) ? (int) $target['published_at'] : 0,
 							'incoming_links'   => isset( $state['incoming_links'][ $target_id ] ) ? (int) $state['incoming_links'][ $target_id ] : 0,
 							'incoming_sources' => isset( $state['incoming_sources'][ $target_id ] ) ? (int) $state['incoming_sources'][ $target_id ] : 0,
 							'incoming_detail'  => $this->build_incoming_detail_rows( $state, $target_id ),
@@ -3737,6 +5465,8 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					$report['total_sources']       = count( (array) ( $state['source_ids'] ?? array() ) );
 					$report['rows']                = $rows;
 					$report['health']              = $this->build_health_report( $state, $rows );
+					$report['suggestions']         = $this->build_suggestion_report( $state, $rows );
+					$report['suggestion_count']    = count( $report['suggestions'] );
 					$report['external_links']      = array_values( array_filter( (array) ( $state['external_links'] ?? array() ), 'is_array' ) );
 					$report['external_total']      = (int) ( $state['external_total'] ?? 0 );
 

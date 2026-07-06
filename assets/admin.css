@@ -545,7 +545,8 @@
 	color: var(--lfa-danger);
 }
 
-.lfa-external-toolbar {
+.lfa-external-toolbar,
+.lfa-suggestion-toolbar {
 	align-items: center;
 	display: flex;
 	flex-wrap: wrap;
@@ -561,6 +562,121 @@
 
 .lfa-external-table td {
 	vertical-align: top;
+}
+
+.lfa-suggestion-table td {
+	vertical-align: top;
+}
+
+.lfa-suggestion-context {
+	color: var(--lfa-muted);
+	display: block;
+	line-height: 1.55;
+	max-width: 360px;
+}
+
+.lfa-suggestion-context mark {
+	background: #ecfdf5;
+	border-radius: 4px;
+	color: var(--lfa-ok);
+	font-weight: 700;
+	padding: 1px 4px;
+}
+
+.lfa-suggestion-metric {
+	color: var(--lfa-muted);
+	font-size: 12px;
+	margin-top: 5px;
+}
+
+.lfa-suggestion-metric strong {
+	color: var(--lfa-accent);
+}
+
+.lfa-suggestion-source-meta,
+.lfa-manual-result-summary {
+	color: var(--lfa-muted);
+	font-size: 12px;
+	line-height: 1.45;
+	margin-top: 6px;
+}
+
+.lfa-suggestion-source-meta strong,
+.lfa-manual-result-summary strong {
+	color: var(--lfa-ink);
+}
+
+.lfa-scan-note {
+	background: var(--lfa-accent-soft);
+	border: 1px solid #c7d2fe;
+	border-radius: 10px;
+	color: var(--lfa-ink);
+	font-size: 13px;
+	margin: 10px 0;
+	padding: 10px 12px;
+}
+
+.lfa-scan-note--warning {
+	background: var(--lfa-warning-soft);
+	border-color: #fcd34d;
+	color: var(--lfa-warning);
+}
+
+.lfa-dismissed-reset {
+	align-items: center;
+	background: var(--lfa-bg);
+	border: 1px solid var(--lfa-line);
+	border-radius: 10px;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	margin: 10px 0 12px;
+	padding: 10px 12px;
+}
+
+.lfa-dismissed-reset > span:first-child {
+	color: var(--lfa-muted);
+	font-size: 13px;
+}
+
+.lfa-dismissed-reset strong {
+	color: var(--lfa-ink);
+}
+
+.lfa-manual-builder {
+	align-items: flex-end;
+	background: var(--lfa-bg);
+	border: 1px solid var(--lfa-line);
+	border-radius: 12px;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+	margin: 8px 0 12px;
+	padding: 14px 16px;
+}
+
+.lfa-manual-field {
+	display: flex;
+	flex-direction: column;
+	gap: 5px;
+}
+
+.lfa-manual-field label {
+	color: var(--lfa-muted);
+	font-size: 12px;
+	font-weight: 700;
+}
+
+.lfa-manual-field .regular-text {
+	min-width: 240px;
+}
+
+.lfa-manual-sort {
+	min-width: 210px;
+}
+
+.lfa-manual-results {
+	margin-top: 12px;
 }
 
 .lfa-detail-table {
@@ -830,7 +946,19 @@
 		flex-direction: column;
 	}
 
-	.lfa-filter-search {
+	.lfa-manual-builder {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.lfa-manual-field .regular-text,
+	.lfa-manual-sort {
+		min-width: 0;
+		width: 100%;
+	}
+
+	.lfa-filter-search,
+	.lfa-suggestion-search {
 		min-width: 0;
 		width: 100%;
 	}

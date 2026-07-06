@@ -143,7 +143,8 @@
 		var selectors = {
 			broken: '[data-lfa-tab="broken"]',
 			redirect: '[data-lfa-tab="redirects"]',
-			external: '[data-lfa-tab="external"]'
+			external: '[data-lfa-tab="external"]',
+			suggestions: '[data-lfa-tab="suggestions"]'
 		};
 		var selector = selectors[scope];
 
@@ -253,6 +254,199 @@
 			raw_url: $button.data('raw-url'),
 			mode: 'replace',
 			new_url: newUrl
+		});
+	});
+
+	$(document).on('click', '.lfa-accept-suggestion', function () {
+		var $button = $(this);
+		var $row = $button.closest('tr');
+		var $root = $button.closest('.lfa-tab-panel, .lfa-widget, .lfa-page');
+		var messages = lfaMessages();
+		var suggestionId = $button.data('suggestion-id') || '';
+
+		if (!suggestionId) {
+			setMessage($root, messages.error, true);
+			return;
+		}
+
+		if (!window.confirm(messages.confirmAccept)) {
+			return;
+		}
+
+		$row.find('button').prop('disabled', true);
+		setMessage($root, messages.accepting, false);
+
+		request({
+			action: 'linkflow_auditor_accept_suggestion',
+			suggestion_id: suggestionId
+		}).done(function (response) {
+			var data = response && response.data ? response.data : {};
+
+			if (!response || !response.success) {
+				$row.find('button').prop('disabled', false);
+				setMessage($root, data.message || messages.error, true);
+				return;
+			}
+
+			setMessage($root, data.message || messages.done, false);
+			updateTabCount($row, 'suggestions', data.suggestion_count);
+			removeRow($row);
+		}).fail(function () {
+			$row.find('button').prop('disabled', false);
+			setMessage($root, messages.error, true);
+		});
+	});
+
+	$(document).on('click', '.lfa-dismiss-suggestion', function () {
+		var $button = $(this);
+		var $row = $button.closest('tr');
+		var $root = $button.closest('.lfa-tab-panel, .lfa-widget, .lfa-page');
+		var messages = lfaMessages();
+		var suggestionId = $button.data('suggestion-id') || '';
+
+		if (!suggestionId) {
+			setMessage($root, messages.error, true);
+			return;
+		}
+
+		if (!window.confirm(messages.confirmDismiss)) {
+			return;
+		}
+
+		$row.find('button').prop('disabled', true);
+		setMessage($root, messages.dismissing, false);
+
+		request({
+			action: 'linkflow_auditor_dismiss_suggestion',
+			suggestion_id: suggestionId
+		}).done(function (response) {
+			var data = response && response.data ? response.data : {};
+
+			if (!response || !response.success) {
+				$row.find('button').prop('disabled', false);
+				setMessage($root, data.message || messages.error, true);
+				return;
+			}
+
+			setMessage($root, data.message || messages.done, false);
+			updateTabCount($row, 'suggestions', data.suggestion_count);
+			removeRow($row);
+		}).fail(function () {
+			$row.find('button').prop('disabled', false);
+			setMessage($root, messages.error, true);
+		});
+	});
+
+	$(document).on('click', '.lfa-reset-dismissed-suggestions', function () {
+		var $button = $(this);
+		var $root = $button.closest('.lfa-tab-panel, .lfa-widget, .lfa-page');
+		var messages = lfaMessages();
+
+		if (!window.confirm(messages.confirmResetDismissed)) {
+			return;
+		}
+
+		$button.prop('disabled', true);
+		setMessage($root, messages.resetting, false);
+
+		request({
+			action: 'linkflow_auditor_reset_dismissed_suggestions'
+		}).done(function (response) {
+			var data = response && response.data ? response.data : {};
+
+			if (!response || !response.success) {
+				$button.prop('disabled', false);
+				setMessage($root, data.message || messages.error, true);
+				return;
+			}
+
+			$root.find('.lfa-dismissed-count').text(data.count || 0);
+			setMessage($root, data.message || messages.done, false);
+		}).fail(function () {
+			$button.prop('disabled', false);
+			setMessage($root, messages.error, true);
+		});
+	});
+
+	$(document).on('click', '.lfa-manual-search', function () {
+		var $button = $(this);
+		var $panel = $button.closest('.lfa-tab-panel');
+		var $builder = $button.closest('[data-lfa-manual-builder]');
+		var messages = lfaMessages();
+		var anchor = ($builder.find('.lfa-manual-anchor').val() || '').trim();
+		var targetUrl = ($builder.find('.lfa-manual-target').val() || '').trim();
+		var sort = $builder.find('.lfa-manual-sort').val() || 'least_links';
+
+		if (!anchor) {
+			window.alert(messages.emptyAnchor || messages.error);
+			return;
+		}
+
+		if (!targetUrl) {
+			window.alert(messages.emptyUrl || messages.error);
+			return;
+		}
+
+		$button.prop('disabled', true);
+		$builder.find('.lfa-spinner').addClass('is-active');
+		setMessage($panel, messages.searching, false);
+		$panel.find('.lfa-manual-results').empty();
+
+		request({
+			action: 'linkflow_auditor_manual_suggestions',
+			anchor: anchor,
+			target_url: targetUrl,
+			sort: sort
+		}).done(function (response) {
+			var data = response && response.data ? response.data : {};
+
+			if (!response || !response.success) {
+				setMessage($panel, data.message || messages.error, true);
+				return;
+			}
+
+			setMessage($panel, data.message || '', false);
+			$panel.find('.lfa-manual-results').html(data.html || '');
+		}).fail(function () {
+			setMessage($panel, messages.error, true);
+		}).always(function () {
+			$button.prop('disabled', false);
+			$builder.find('.lfa-spinner').removeClass('is-active');
+		});
+	});
+
+	$(document).on('click', '.lfa-accept-manual-suggestion', function () {
+		var $button = $(this);
+		var $row = $button.closest('tr');
+		var $root = $button.closest('.lfa-tab-panel, .lfa-widget, .lfa-page');
+		var messages = lfaMessages();
+
+		if (!window.confirm(messages.confirmAccept)) {
+			return;
+		}
+
+		$row.find('button').prop('disabled', true);
+		setMessage($root, messages.accepting, false);
+
+		request({
+			action: 'linkflow_auditor_accept_manual_suggestion',
+			source_id: $button.data('source-id'),
+			anchor: $button.data('anchor') || '',
+			target_url: $button.data('target-url') || ''
+		}).done(function (response) {
+			var data = response && response.data ? response.data : {};
+
+			if (!response || !response.success) {
+				$row.find('button').prop('disabled', false);
+				setMessage($root, data.message || messages.error, true);
+				return;
+			}
+
+			setMessage($root, data.message || messages.done, false);
+			removeRow($row);
+		}).fail(function () {
+			$row.find('button').prop('disabled', false);
+			setMessage($root, messages.error, true);
 		});
 	});
 
@@ -497,6 +691,16 @@
 		var $panel = $(this).closest('.lfa-tab-panel');
 
 		$panel.find('tr.lfa-external-row').each(function () {
+			var haystack = $(this).attr('data-search') || '';
+			$(this).toggle(!query || haystack.indexOf(query) !== -1);
+		});
+	});
+
+	$(document).on('input', '.lfa-suggestion-search', function () {
+		var query = ($(this).val() || '').trim().toLowerCase();
+		var $panel = $(this).closest('.lfa-tab-panel');
+
+		$panel.find('tr.lfa-suggestion-row').each(function () {
 			var haystack = $(this).attr('data-search') || '';
 			$(this).toggle(!query || haystack.indexOf(query) !== -1);
 		});
