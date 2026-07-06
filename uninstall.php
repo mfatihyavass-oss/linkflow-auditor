@@ -12,6 +12,7 @@ global $wpdb;
 delete_option( 'linkflow_auditor_report' );
 delete_option( 'linkflow_auditor_settings' );
 delete_option( 'linkflow_auditor_check_external_links' );
+delete_option( 'linkflow_auditor_ignored_suggestions' );
 delete_transient( 'linkflow_auditor_background_scan_lock' );
 wp_clear_scheduled_hook( 'linkflow_auditor_run_background_scan' );
 

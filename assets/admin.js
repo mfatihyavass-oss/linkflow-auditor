@@ -586,6 +586,16 @@
 		return isNaN(num) ? null : num;
 	}
 
+	function lfaNorm(value) {
+		var text = (value === null || typeof value === 'undefined') ? '' : String(value).toLowerCase();
+
+		if (typeof text.normalize === 'function') {
+			text = text.normalize('NFC');
+		}
+
+		return text.replace(/i\u0307/g, 'i');
+	}
+
 	function collapseDetail($row) {
 		var $detail = $row.next('.lfa-detail-row');
 
@@ -605,13 +615,13 @@
 
 		var min = parseBound($bar.find('.lfa-filter-min').val());
 		var max = parseBound($bar.find('.lfa-filter-max').val());
-		var query = ($bar.find('.lfa-filter-search').val() || '').trim().toLowerCase();
+		var query = lfaNorm(($bar.find('.lfa-filter-search').val() || '').trim());
 		var shown = 0;
 
 		$panel.find('tr.lfa-row').each(function () {
 			var $row = $(this);
 			var sources = parseInt($row.attr('data-incoming-sources'), 10) || 0;
-			var title = $row.attr('data-title') || '';
+			var title = lfaNorm($row.attr('data-title') || '');
 			var visible = true;
 
 			if (min !== null && sources < min) {
@@ -687,21 +697,21 @@
 	/* ---------- External links search ---------- */
 
 	$(document).on('input', '.lfa-external-search', function () {
-		var query = ($(this).val() || '').trim().toLowerCase();
+		var query = lfaNorm(($(this).val() || '').trim());
 		var $panel = $(this).closest('.lfa-tab-panel');
 
 		$panel.find('tr.lfa-external-row').each(function () {
-			var haystack = $(this).attr('data-search') || '';
+			var haystack = lfaNorm($(this).attr('data-search') || '');
 			$(this).toggle(!query || haystack.indexOf(query) !== -1);
 		});
 	});
 
 	$(document).on('input', '.lfa-suggestion-search', function () {
-		var query = ($(this).val() || '').trim().toLowerCase();
+		var query = lfaNorm(($(this).val() || '').trim());
 		var $panel = $(this).closest('.lfa-tab-panel');
 
 		$panel.find('tr.lfa-suggestion-row').each(function () {
-			var haystack = $(this).attr('data-search') || '';
+			var haystack = lfaNorm($(this).attr('data-search') || '');
 			$(this).toggle(!query || haystack.indexOf(query) !== -1);
 		});
 	});

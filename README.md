@@ -6,7 +6,7 @@ The plugin is designed for content-heavy WordPress sites where SEO teams need to
 
 ## Status
 
-- Current version: `1.10.1`
+- Current version: `1.10.2`
 - WordPress minimum: `6.4`
 - PHP minimum: `7.4`
 - Main plugin file: `linkflow-auditor.php`
@@ -216,6 +216,12 @@ LinkFlow Auditor reads links from editor content. It does not count or check:
 Build a WordPress-installable package with the folder name `linkflow-auditor`. ZIP files, macOS metadata and Git internals should not be included in the package.
 
 ## Changelog
+
+### 1.10.2
+
+- Fixed uninstall cleanup for dismissed automatic suggestion data.
+- Fixed Turkish `İ/i` matching in admin filters and search boxes.
+- Hardened Unicode phrase matching so link insertion uses original text offsets.
 
 ### 1.10.1
 
