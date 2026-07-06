@@ -6,7 +6,7 @@ The plugin is designed for content-heavy WordPress sites where SEO teams need to
 
 ## Status
 
-- Current version: `1.10.2`
+- Current version: `1.10.3`
 - WordPress minimum: `6.4`
 - PHP minimum: `7.4`
 - Main plugin file: `linkflow-auditor.php`
@@ -16,10 +16,11 @@ The plugin is designed for content-heavy WordPress sites where SEO teams need to
 ## Features
 
 - Internal link count report for published public post types.
-- Internal link suggestions that prioritize pages with fewer internal links, show source metrics, and can be accepted or dismissed from the report.
-- Manual internal link suggestion builder for finding a phrase across up to 25 posts/pages and linking it to a chosen internal URL.
+- Internal link suggestions that prioritize pages with fewer internal links, show source metrics, and can be accepted, dismissed, or rotated in batches of 25.
+- Manual internal link suggestion builder for finding a phrase across posts/pages and linking it to a chosen internal URL, plus a source-URL mode that finds possible outgoing internal links from one page.
 - External links report: every outbound link with its anchor text and target URL, plus manual remove/replace.
 - Link Health report: duplicate permalinks, orphan content, dead-end content, insecure `http://` internal links and weak/empty anchor text.
+- Collapsible Link Health sections, closed by default.
 - Broken link report for 404, 410, other 4XX/5XX responses and restricted 401/403 responses.
 - Redirect report for 301, 302, 307 and 308 links.
 - Separate admin tabs and separate scan buttons for each report.
@@ -31,6 +32,7 @@ The plugin is designed for content-heavy WordPress sites where SEO teams need to
 - Broken and redirect report rows include manual remove/replace actions.
 - AJAX batch scanning keeps long scans out of a single heavy request.
 - Report and temporary scan data are stored with autoload disabled.
+- One-click cleanup for saved reports, temporary scan states and suggestion records.
 - Legacy option migration from the former `ic-link-sayici` / `maya_ils_*` naming.
 
 ## Reports
@@ -71,6 +73,8 @@ Shows safe internal link opportunities produced during the internal scan:
 - Source outgoing internal link count and publish date
 - **Öneriyi kaldır** action that suppresses the same suggestion in future scans
 - **Kaldırılan önerileri sıfırla** action that clears the suppressed-suggestion list
+- **Önerileri değiştir** action that shows a different batch of up to 25 saved suggestions
+- **Seçim kaydını sil** action that resets the suggestion rotation history
 
 Suggestions prioritize target pages with fewer incoming internal links. The accept action edits only the source post containing the phrase, skips text that is already inside a link, and refuses to add a duplicate link to the same target.
 
@@ -83,6 +87,8 @@ Lets an admin enter:
 - A sort mode: least-linked sources, oldest first, or newest first
 
 The plugin returns up to 25 source posts/pages where the phrase appears in editable plain text. Manual suggestions skip existing links, code/preformatted areas and shortcode-like text, then use the same **Kabul et** flow to add the link.
+
+Admins can also switch to source-URL mode, enter one published internal URL, and get up to 25 candidate outgoing link opportunities from that content. Each result shows the phrase found on the source page and the internal URL it can link to. Manual results can also be rotated to a different batch of 25 and the rotation record can be cleared.
 
 When the "least-linked sources" sort is used, the ordering is based on the latest internal link scan. If no internal scan exists yet, the UI prompts the admin to run one first.
 
@@ -126,6 +132,7 @@ The plugin intentionally avoids one large "check everything" operation.
 - The internal link tab only parses content and counts internal links.
 - The internal suggestions tab is generated from the same internal scan and does not make HTTP requests.
 - Manual suggestions scan editor content only when requested and return at most 25 candidate source pages.
+- Source-URL manual suggestions scan one source page and return at most 25 target opportunities per batch.
 - The broken link tab performs HTTP checks for broken/restricted responses.
 - The redirect tab performs HTTP checks for reportable 3XX responses.
 - Manual scans run in AJAX batches of 25 content items by default.
@@ -216,6 +223,15 @@ LinkFlow Auditor reads links from editor content. It does not count or check:
 Build a WordPress-installable package with the folder name `linkflow-auditor`. ZIP files, macOS metadata and Git internals should not be included in the package.
 
 ## Changelog
+
+### 1.10.3
+
+- Added source-URL manual suggestions that find possible outgoing internal links from one content URL.
+- Added "Önerileri değiştir" for automatic and manual suggestions, with 25-result batches and resettable rotation records.
+- Added a top-level cleanup button for saved reports, temporary scan states and suggestion records.
+- Changed Link Health issue groups into collapsed-by-default sections.
+- Fixed broken-link tab counters so restricted 401/403 warning rows are counted with the rows shown in the table.
+- Hardened suggestion rotation and cleanup state handling after record resets.
 
 ### 1.10.2
 

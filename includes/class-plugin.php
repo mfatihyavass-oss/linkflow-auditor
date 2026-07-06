@@ -12,7 +12,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 	 * Main plugin class.
 	 */
 	final class LinkFlow_Auditor {
-			private const VERSION               = '1.10.2';
+			private const VERSION               = '1.10.3';
 			private const REPORT_OPTION         = 'linkflow_auditor_report';
 			private const SETTINGS_OPTION       = 'linkflow_auditor_settings';
 			private const IGNORED_SUGGESTIONS_OPTION = 'linkflow_auditor_ignored_suggestions';
@@ -41,7 +41,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 			private const HEALTH_DISPLAY_CAP    = 100;
 			private const EXTERNAL_LIST_CAP     = 2000;
 			private const SUGGESTION_LIST_CAP   = 1000;
-			private const SUGGESTION_DISPLAY_CAP = 500;
+			private const SUGGESTION_BATCH_SIZE = 25;
 			private const SUGGESTION_CANDIDATES_PER_SOURCE = 30;
 			private const SUGGESTIONS_PER_SOURCE = 3;
 			private const SUGGESTIONS_PER_TARGET = 10;
@@ -131,6 +131,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					$this->store,
 					$this->url_normalizer,
 					$this->link_editor,
+					$this->suggestion_engine,
 					function (): array {
 						return $this->get_content_ids();
 					}
@@ -146,10 +147,13 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				add_action( 'wp_ajax_linkflow_auditor_start_scan', array( $this, 'ajax_start_scan' ) );
 				add_action( 'wp_ajax_linkflow_auditor_scan_batch', array( $this, 'ajax_scan_batch' ) );
 				add_action( 'wp_ajax_linkflow_auditor_clear_report', array( $this, 'ajax_clear_report' ) );
+				add_action( 'wp_ajax_linkflow_auditor_clear_all_records', array( $this, 'ajax_clear_all_records' ) );
 			add_action( 'wp_ajax_linkflow_auditor_fix_link', array( $this, 'ajax_fix_link' ) );
 			add_action( 'wp_ajax_linkflow_auditor_accept_suggestion', array( $this, 'ajax_accept_suggestion' ) );
 			add_action( 'wp_ajax_linkflow_auditor_dismiss_suggestion', array( $this, 'ajax_dismiss_suggestion' ) );
 			add_action( 'wp_ajax_linkflow_auditor_reset_dismissed_suggestions', array( $this, 'ajax_reset_dismissed_suggestions' ) );
+			add_action( 'wp_ajax_linkflow_auditor_rotate_suggestions', array( $this, 'ajax_rotate_suggestions' ) );
+			add_action( 'wp_ajax_linkflow_auditor_clear_suggestion_rotation', array( $this, 'ajax_clear_suggestion_rotation' ) );
 			add_action( 'wp_ajax_linkflow_auditor_manual_suggestions', array( $this, 'ajax_manual_suggestions' ) );
 			add_action( 'wp_ajax_linkflow_auditor_accept_manual_suggestion', array( $this, 'ajax_accept_manual_suggestion' ) );
 				add_action( 'admin_post_linkflow_auditor_save_settings', array( $this, 'handle_save_settings' ) );
@@ -613,6 +617,22 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 		}
 
 		/**
+		 * Clear reports, temporary scan states, and suggestion records.
+		 */
+		public function ajax_clear_all_records(): void {
+			$this->verify_ajax_request();
+
+			$deleted = $this->store->clear_runtime_records();
+
+			wp_send_json_success(
+				array(
+					'message' => esc_html__( 'Uygulamanın tuttuğu rapor ve öneri kayıtları silindi.', 'linkflow-auditor' ),
+					'deleted' => $deleted,
+				)
+			);
+		}
+
+		/**
 		 * Remove or replace a single link inside a post and refresh the saved report.
 		 */
 		public function ajax_fix_link(): void {
@@ -777,35 +797,152 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 		}
 
 		/**
+		 * Return a different batch of saved automatic suggestions.
+		 */
+		public function ajax_rotate_suggestions(): void {
+			$this->verify_ajax_request();
+
+			$report      = $this->get_report();
+			$suggestions = array_values( array_filter( (array) ( $report['suggestions'] ?? array() ), 'is_array' ) );
+			$total       = isset( $report['suggestion_count'] ) ? (int) $report['suggestion_count'] : count( $suggestions );
+
+			if ( empty( $suggestions ) ) {
+				wp_send_json_error( array( 'message' => esc_html__( 'Değiştirilecek öneri bulunamadı.', 'linkflow-auditor' ) ), 404 );
+			}
+
+			$current_ids = $this->posted_suggestion_ids( 'current_ids' );
+			$seen        = $this->get_suggestion_seen_ids( 'normal' );
+
+			foreach ( $current_ids as $id ) {
+				$seen[ $id ] = true;
+			}
+
+			$batch    = $this->select_suggestion_batch( $suggestions, $seen, self::SUGGESTION_BATCH_SIZE + 1 );
+			$has_more = count( $batch ) > self::SUGGESTION_BATCH_SIZE;
+			$batch    = array_slice( $batch, 0, self::SUGGESTION_BATCH_SIZE );
+
+			foreach ( $this->get_suggestion_ids_from_rows( $batch ) as $id ) {
+				$seen[ $id ] = true;
+			}
+			$this->save_suggestion_seen_ids( 'normal', '', $seen );
+
+			$html = $this->admin_page->render_saved_suggestions_results( $batch, $total, $has_more );
+
+			wp_send_json_success(
+				array(
+					'message' => empty( $batch )
+						? esc_html__( 'Gösterilecek farklı öneri kalmadı. Seçim kaydını silerseniz baştan gösterebilirsiniz.', 'linkflow-auditor' )
+						: esc_html__( 'Farklı öneriler hazır.', 'linkflow-auditor' ),
+					'count'   => count( $batch ),
+					'html'    => $html,
+				)
+			);
+		}
+
+		/**
+		 * Clear automatic or manual suggestion rotation records.
+		 */
+		public function ajax_clear_suggestion_rotation(): void {
+			$this->verify_ajax_request();
+
+			$scope = isset( $_POST['scope'] ) ? sanitize_key( wp_unslash( $_POST['scope'] ) ) : '';
+			if ( ! in_array( $scope, array( 'normal', 'manual' ), true ) ) {
+				wp_send_json_error( array( 'message' => esc_html__( 'Geçersiz kayıt türü.', 'linkflow-auditor' ) ), 400 );
+			}
+
+			$this->store->clear_suggestion_rotation( $scope );
+
+			wp_send_json_success(
+				array(
+					'message' => esc_html__( 'Öneri seçim kaydı silindi.', 'linkflow-auditor' ),
+				)
+			);
+		}
+
+		/**
 		 * Search editable content for a manual internal link opportunity.
 		 */
 		public function ajax_manual_suggestions(): void {
 			$this->verify_ajax_request();
 
-			$anchor = isset( $_POST['anchor'] ) ? trim( (string) wp_unslash( $_POST['anchor'] ) ) : '';
-			$target = isset( $_POST['target_url'] ) ? trim( (string) wp_unslash( $_POST['target_url'] ) ) : '';
-			$sort   = isset( $_POST['sort'] ) ? sanitize_key( wp_unslash( $_POST['sort'] ) ) : 'least_links';
-
-			if ( '' === $anchor || $this->mb_strlen( $this->normalize_suggestion_phrase( $anchor ) ) < 2 ) {
-				wp_send_json_error( array( 'message' => esc_html__( 'Linklenecek ifade çok kısa.', 'linkflow-auditor' ) ), 400 );
-			}
-
-			$target_url = $this->normalize_manual_target_url( $target );
-			if ( is_wp_error( $target_url ) ) {
-				wp_send_json_error( array( 'message' => $target_url->get_error_message() ), 400 );
-			}
+			$mode          = isset( $_POST['mode'] ) ? sanitize_key( wp_unslash( $_POST['mode'] ) ) : 'phrase';
+			$mode          = 'source_url' === $mode ? 'source_url' : 'phrase';
+			$anchor        = isset( $_POST['anchor'] ) ? trim( (string) wp_unslash( $_POST['anchor'] ) ) : '';
+			$target        = isset( $_POST['target_url'] ) ? trim( (string) wp_unslash( $_POST['target_url'] ) ) : '';
+			$source_url    = isset( $_POST['source_url'] ) ? trim( (string) wp_unslash( $_POST['source_url'] ) ) : '';
+			$sort          = isset( $_POST['sort'] ) ? sanitize_key( wp_unslash( $_POST['sort'] ) ) : 'least_links';
+			$reset_context = ! empty( $_POST['reset_context'] );
+			$current_ids   = $this->posted_suggestion_ids( 'current_ids' );
 
 			if ( ! in_array( $sort, array( 'least_links', 'oldest', 'newest' ), true ) ) {
 				$sort = 'least_links';
 			}
 
-			$suggestions = $this->build_manual_link_suggestions( $anchor, (string) $target_url, $sort );
-			$html        = $this->render_manual_suggestions_results( $suggestions, (string) $target_url );
+			if ( 'source_url' === $mode ) {
+				if ( '' === $source_url ) {
+					wp_send_json_error( array( 'message' => esc_html__( 'Lütfen kaynak URL girin.', 'linkflow-auditor' ) ), 400 );
+				}
+
+				$context_key = $this->manual_suggestion_context_key( $mode, $source_url, '', $sort );
+				$excluded    = $reset_context ? array() : $this->get_suggestion_seen_ids( 'manual', $context_key );
+				if ( ! $reset_context ) {
+					foreach ( $current_ids as $id ) {
+						$excluded[ $id ] = true;
+					}
+				} else {
+					$this->clear_manual_suggestion_context( $context_key );
+				}
+
+				$result = $this->manual_suggestion_engine->build_source_url_link_suggestions( $source_url, $sort, $excluded, self::SUGGESTION_BATCH_SIZE + 1 );
+				if ( is_wp_error( $result ) ) {
+					wp_send_json_error( array( 'message' => $result->get_error_message() ), 400 );
+				}
+
+				$suggestions = $result;
+				$target_url  = '';
+			} else {
+				if ( '' === $anchor || $this->mb_strlen( $this->normalize_suggestion_phrase( $anchor ) ) < 2 ) {
+					wp_send_json_error( array( 'message' => esc_html__( 'Linklenecek ifade çok kısa.', 'linkflow-auditor' ) ), 400 );
+				}
+
+				$target_url = $this->normalize_manual_target_url( $target );
+				if ( is_wp_error( $target_url ) ) {
+					wp_send_json_error( array( 'message' => $target_url->get_error_message() ), 400 );
+				}
+
+				$context_key = $this->manual_suggestion_context_key( $mode, $anchor, (string) $target_url, $sort );
+				$excluded    = $reset_context ? array() : $this->get_suggestion_seen_ids( 'manual', $context_key );
+				if ( ! $reset_context ) {
+					foreach ( $current_ids as $id ) {
+						$excluded[ $id ] = true;
+					}
+				} else {
+					$this->clear_manual_suggestion_context( $context_key );
+				}
+
+				$suggestions = $this->build_manual_link_suggestions( $anchor, (string) $target_url, $sort, $excluded, self::SUGGESTION_BATCH_SIZE + 1 );
+			}
+
+			$has_more    = count( $suggestions ) > self::SUGGESTION_BATCH_SIZE;
+			$suggestions = array_slice( $suggestions, 0, self::SUGGESTION_BATCH_SIZE );
+
+			if ( ! $reset_context ) {
+				foreach ( $this->get_suggestion_ids_from_rows( $suggestions ) as $id ) {
+					$excluded[ $id ] = true;
+				}
+				$this->save_suggestion_seen_ids( 'manual', $context_key, $excluded );
+			}
+
+			$empty_message = ! $reset_context
+				? esc_html__( 'Gösterilecek farklı manuel öneri kalmadı. Seçim kaydını silerseniz baştan gösterebilirsiniz.', 'linkflow-auditor' )
+				: esc_html__( 'Uygun düz metin eşleşmesi bulunamadı.', 'linkflow-auditor' );
+
+			$html = $this->render_manual_suggestions_results( $suggestions, (string) $target_url, $mode, $source_url, $has_more, $empty_message );
 
 			wp_send_json_success(
 				array(
 					'message' => empty( $suggestions )
-						? esc_html__( 'Uygun düz metin eşleşmesi bulunamadı.', 'linkflow-auditor' )
+						? $empty_message
 						: esc_html__( 'Manuel öneriler hazır.', 'linkflow-auditor' ),
 					'count'   => count( $suggestions ),
 					'html'    => $html,
@@ -1043,10 +1180,12 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 		 * @param string $anchor     Phrase to find.
 		 * @param string $target_url Internal target URL.
 		 * @param string $sort       Sort mode.
+		 * @param array<string,bool> $excluded_ids Suggestion IDs to skip.
+		 * @param int    $limit      Maximum suggestions to return.
 		 * @return array<int,array<string,mixed>>
 		 */
-		private function build_manual_link_suggestions( string $anchor, string $target_url, string $sort ): array {
-			return $this->manual_suggestion_engine->build_manual_link_suggestions( $anchor, $target_url, $sort );
+		private function build_manual_link_suggestions( string $anchor, string $target_url, string $sort, array $excluded_ids = array(), int $limit = self::MANUAL_SUGGESTION_LIMIT ): array {
+			return $this->manual_suggestion_engine->build_manual_link_suggestions( $anchor, $target_url, $sort, $excluded_ids, $limit );
 		}
 
 		/**
@@ -1054,9 +1193,13 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 		 *
 		 * @param array<int,array<string,mixed>> $suggestions Suggestions.
 		 * @param string                         $target_url  Target URL.
+		 * @param string                         $mode        Manual suggestion mode.
+		 * @param string                         $source_url  Source URL for source mode.
+		 * @param bool                           $has_more    Whether another batch exists.
+		 * @param string                         $empty_message Empty result message.
 		 */
-		private function render_manual_suggestions_results( array $suggestions, string $target_url ): string {
-			return $this->admin_page->render_manual_suggestions_results( $suggestions, $target_url );
+		private function render_manual_suggestions_results( array $suggestions, string $target_url, string $mode = 'phrase', string $source_url = '', bool $has_more = false, string $empty_message = '' ): string {
+			return $this->admin_page->render_manual_suggestions_results( $suggestions, $target_url, $mode, $source_url, $has_more, $empty_message );
 		}
 
 		
@@ -1227,9 +1370,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 		 * @return array{broken_count:int,redirect_count:int,external_count:int}
 		 */
 		private function fix_result_counts( array $report ): array {
-			$broken_count   = isset( $report['broken_link_count'] )
-				? (int) $report['broken_link_count']
-				: count( (array) ( $report['broken_links'] ?? array() ) );
+			$broken_count   = $this->count_broken_issues( $report );
 			$redirect_count = isset( $report['redirect_link_count'] )
 				? (int) $report['redirect_link_count']
 				: $this->count_redirect_usage( (array) ( $report['redirect_links'] ?? array() ) );
@@ -1242,6 +1383,20 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 				'redirect_count' => $redirect_count,
 				'external_count' => $external_count,
 			);
+		}
+
+		/**
+		 * Count every issue shown in the broken-link tab, including warning rows.
+		 *
+		 * @param array<string,mixed> $report Current report.
+		 */
+		private function count_broken_issues( array $report ): int {
+			if ( isset( $report['broken_link_count'] ) || isset( $report['warning_link_count'] ) ) {
+				return max( 0, (int) ( $report['broken_link_count'] ?? 0 ) )
+					+ max( 0, (int) ( $report['warning_link_count'] ?? 0 ) );
+			}
+
+			return count( (array) ( $report['broken_links'] ?? array() ) );
 		}
 
 		/**
@@ -1296,6 +1451,165 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 			 */
 			private function save_ignored_suggestion_ids( array $ids ): void {
 				$this->store->save_ignored_suggestion_ids( $ids );
+			}
+
+			/**
+			 * Get seen suggestion IDs for a rotation scope/context.
+			 *
+			 * @param string $scope Scope: normal or manual.
+			 * @param string $context_key Optional manual context key.
+			 * @return array<string,bool>
+			 */
+			private function get_suggestion_seen_ids( string $scope, string $context_key = '' ): array {
+				$rotation = $this->store->get_suggestion_rotation();
+
+				if ( 'manual' === $scope ) {
+					$context = sanitize_key( $context_key );
+					$seen    = (array) ( $rotation['manual'][ $context ]['seen'] ?? array() );
+				} else {
+					$seen = (array) ( $rotation['normal']['seen'] ?? array() );
+				}
+
+				$clean = array();
+				foreach ( $seen as $id => $value ) {
+					$id = sanitize_key( is_int( $id ) ? (string) $value : (string) $id );
+					if ( '' !== $id ) {
+						$clean[ $id ] = true;
+					}
+				}
+
+				return $clean;
+			}
+
+			/**
+			 * Save seen suggestion IDs for a rotation scope/context.
+			 *
+			 * @param string             $scope Scope: normal or manual.
+			 * @param string             $context_key Optional manual context key.
+			 * @param array<string,bool> $seen Seen ID map.
+			 */
+			private function save_suggestion_seen_ids( string $scope, string $context_key, array $seen ): void {
+				$rotation = $this->store->get_suggestion_rotation();
+
+				if ( 'manual' === $scope ) {
+					$context = sanitize_key( $context_key );
+					if ( '' === $context ) {
+						return;
+					}
+
+					if ( ! isset( $rotation['manual'] ) || ! is_array( $rotation['manual'] ) ) {
+						$rotation['manual'] = array();
+					}
+
+					$rotation['manual'][ $context ] = array(
+						'seen'       => $seen,
+						'updated_at' => time(),
+					);
+				} else {
+					$rotation['normal'] = array(
+						'seen'       => $seen,
+						'updated_at' => time(),
+					);
+				}
+
+				$this->store->save_suggestion_rotation( $rotation );
+			}
+
+			/**
+			 * Clear one manual suggestion context from rotation records.
+			 *
+			 * @param string $context_key Context key.
+			 */
+			private function clear_manual_suggestion_context( string $context_key ): void {
+				$context_key = sanitize_key( $context_key );
+				if ( '' === $context_key ) {
+					return;
+				}
+
+				$rotation = $this->store->get_suggestion_rotation();
+				if ( isset( $rotation['manual'] ) && is_array( $rotation['manual'] ) ) {
+					unset( $rotation['manual'][ $context_key ] );
+					$this->store->save_suggestion_rotation( $rotation );
+				}
+			}
+
+			/**
+			 * Build a stable context key for manual suggestion rotation.
+			 *
+			 * @param string $mode Mode.
+			 * @param string $primary Primary input.
+			 * @param string $secondary Secondary input.
+			 * @param string $sort Sort mode.
+			 */
+			private function manual_suggestion_context_key( string $mode, string $primary, string $secondary, string $sort ): string {
+				return substr( hash( 'sha256', $mode . '|' . $this->mb_lower( trim( $primary ) ) . '|' . $this->mb_lower( trim( $secondary ) ) . '|' . $sort ), 0, 24 );
+			}
+
+			/**
+			 * Read suggestion IDs posted by the current result table.
+			 *
+			 * @param string $field POST field name.
+			 * @return string[]
+			 */
+			private function posted_suggestion_ids( string $field ): array {
+				$value = isset( $_POST[ $field ] ) ? wp_unslash( $_POST[ $field ] ) : '';
+				$ids   = is_array( $value ) ? $value : explode( ',', (string) $value );
+				$clean = array();
+
+				foreach ( $ids as $id ) {
+					$id = sanitize_key( (string) $id );
+					if ( '' !== $id ) {
+						$clean[] = $id;
+					}
+				}
+
+				return array_values( array_unique( $clean ) );
+			}
+
+			/**
+			 * Get IDs from rendered suggestion rows.
+			 *
+			 * @param array<int,array<string,mixed>> $suggestions Suggestions.
+			 * @return string[]
+			 */
+			private function get_suggestion_ids_from_rows( array $suggestions ): array {
+				$ids = array();
+
+				foreach ( $suggestions as $suggestion ) {
+					$id = sanitize_key( (string) ( $suggestion['id'] ?? '' ) );
+					if ( '' !== $id ) {
+						$ids[] = $id;
+					}
+				}
+
+				return array_values( array_unique( $ids ) );
+			}
+
+			/**
+			 * Select a suggestion batch excluding already-seen IDs.
+			 *
+			 * @param array<int,array<string,mixed>> $suggestions Suggestions.
+			 * @param array<string,bool>             $seen Seen ID map.
+			 * @param int                            $limit Batch size.
+			 * @return array<int,array<string,mixed>>
+			 */
+			private function select_suggestion_batch( array $suggestions, array $seen, int $limit ): array {
+				$batch = array();
+
+				foreach ( $suggestions as $suggestion ) {
+					$id = sanitize_key( (string) ( $suggestion['id'] ?? '' ) );
+					if ( '' === $id || isset( $seen[ $id ] ) ) {
+						continue;
+					}
+
+					$batch[] = $suggestion;
+
+					if ( count( $batch ) >= $limit ) {
+						break;
+					}
+				}
+
+				return $batch;
 			}
 
 			
@@ -2569,6 +2883,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					$report['suggestion_count']    = count( $report['suggestions'] );
 					$report['external_links']      = array_values( array_filter( (array) ( $state['external_links'] ?? array() ), 'is_array' ) );
 					$report['external_total']      = (int) ( $state['external_total'] ?? 0 );
+					$this->store->clear_suggestion_rotation( 'normal' );
 
 					return $report;
 				}
