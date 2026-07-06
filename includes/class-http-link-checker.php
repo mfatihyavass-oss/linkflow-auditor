@@ -12,7 +12,7 @@ if ( ! class_exists( 'LinkFlow_Auditor_Http_Link_Checker' ) ) {
 	 * Requests URLs and preserves the first reportable redirect status.
 	 */
 	final class LinkFlow_Auditor_Http_Link_Checker {
-		private const VERSION               = '1.10.2';
+		private const VERSION               = '1.10.3';
 		private const REDIRECT_STATUS_CODES = array( 301, 302, 307, 308 );
 
 		/**

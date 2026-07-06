@@ -170,6 +170,39 @@
 	text-align: center;
 }
 
+.lfa-cleanup-bar {
+	align-items: center;
+	background: var(--lfa-surface);
+	border: 1px solid var(--lfa-line);
+	border-radius: 12px;
+	box-shadow: var(--lfa-shadow);
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+	justify-content: space-between;
+	margin: 0 0 18px;
+	max-width: 980px;
+	padding: 12px 16px;
+}
+
+.lfa-cleanup-bar strong {
+	display: block;
+	font-size: 13px;
+}
+
+.lfa-cleanup-bar span {
+	color: var(--lfa-muted);
+	display: block;
+	font-size: 12px;
+	margin-top: 2px;
+}
+
+.lfa-cleanup-bar .lfa-message {
+	flex-basis: 100%;
+	margin: 0;
+	min-height: 0;
+}
+
 /* ---------- Tabs ---------- */
 
 .lfa-tabs {
@@ -560,6 +593,14 @@
 	font-size: 13px;
 }
 
+.lfa-suggestion-toolbar-actions {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	justify-content: flex-end;
+}
+
 .lfa-external-table td {
 	vertical-align: top;
 }
@@ -655,6 +696,37 @@
 	padding: 14px 16px;
 }
 
+.lfa-manual-mode {
+	align-items: center;
+	display: flex;
+	flex-basis: 100%;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.lfa-manual-mode label {
+	align-items: center;
+	background: var(--lfa-surface);
+	border: 1px solid var(--lfa-line);
+	border-radius: 999px;
+	display: inline-flex;
+	font-size: 13px;
+	font-weight: 600;
+	gap: 6px;
+	padding: 6px 12px;
+}
+
+.lfa-manual-mode-fields {
+	align-items: flex-end;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+}
+
+.lfa-manual-mode-fields[hidden] {
+	display: none;
+}
+
 .lfa-manual-field {
 	display: flex;
 	flex-direction: column;
@@ -677,6 +749,15 @@
 
 .lfa-manual-results {
 	margin-top: 12px;
+}
+
+.lfa-manual-result-head {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 10px;
+	justify-content: space-between;
+	margin: 8px 0 10px;
 }
 
 .lfa-detail-table {
@@ -751,6 +832,10 @@
 	padding: 16px 18px;
 }
 
+.lfa-health-details {
+	margin: 0;
+}
+
 .lfa-health-card--critical {
 	border-left-color: var(--lfa-danger);
 }
@@ -765,8 +850,14 @@
 
 .lfa-health-head {
 	align-items: center;
+	cursor: pointer;
 	display: flex;
 	gap: 10px;
+	list-style: none;
+}
+
+.lfa-health-head::-webkit-details-marker {
+	display: none;
 }
 
 .lfa-health-icon {
@@ -788,6 +879,16 @@
 	min-width: 28px;
 	padding: 2px 10px;
 	text-align: center;
+}
+
+.lfa-health-caret {
+	color: var(--lfa-muted);
+	font-size: 12px;
+	transition: transform 0.15s ease;
+}
+
+.lfa-health-details[open] .lfa-health-caret {
+	transform: rotate(180deg);
 }
 
 .lfa-health-card--critical .lfa-health-badge {
@@ -947,6 +1048,14 @@
 	}
 
 	.lfa-manual-builder {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.lfa-manual-mode,
+	.lfa-manual-mode-fields,
+	.lfa-manual-result-head,
+	.lfa-suggestion-toolbar-actions {
 		align-items: stretch;
 		flex-direction: column;
 	}

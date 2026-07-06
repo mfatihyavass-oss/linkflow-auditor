@@ -2,16 +2,17 @@
 
 ## Current Status
 
-LinkFlow Auditor is ready as a combined WordPress admin plugin that replaces the earlier separate internal link counter and broken link checker builds.
+LinkFlow Auditor is ready as a combined WordPress admin plugin for auditing internal links, broken links, redirects, external links and internal-link health from separate WordPress admin reports.
 
 Current package target:
 
 - Plugin name: LinkFlow Auditor
 - Slug: `linkflow-auditor`
-- Version: `1.8.0`
+- Version: `1.10.3`
 - Main file: `linkflow-auditor.php`
 - Text domain: `linkflow-auditor`
 - GitHub repository target: `mfatihyavass-oss/linkflow-auditor`
+- Latest package: `linkflow-auditor-1.10.3.zip`
 
 ## Completed
 
@@ -24,29 +25,121 @@ Current package target:
   - `maya_ils_report`
   - `maya_ils_settings`
   - `maya_ils_check_external_links`
-- Added uninstall cleanup for both current and legacy option names.
-- Split scanning into three independent admin tabs:
+- Added uninstall cleanup for current and legacy option names, scan state options, dismissed suggestions and suggestion rotation records.
+- Split scanning into independent admin tabs:
   - Internal link counts
+  - Link Health
+  - Internal link suggestions
+  - Manual suggestions
   - Broken links
   - Redirecting links
-- Kept external link checking disabled by default.
+  - External links
+- Kept external HTTP checking disabled by default.
 - Kept automatic broken link checks disabled by default.
 - Limited automatic scans to broken link checks only.
 - Preserved existing report sections when another section is rescanned.
+- Added manual link remove/replace actions for broken, redirect, external and internal-detail report rows.
+- Preserved the active report tab after scans, fixes and report clearing.
+- Added Link Health reporting for duplicate permalinks, orphan content, dead-end content, insecure internal `http://` links and weak/empty anchor text.
+- Added collapsible Link Health sections, closed by default.
+- Added auditable incoming-link detail rows with source, anchors, counts and raw href.
+- Added internal report filters, quick presets and CSV export.
+- Added automatic internal-link suggestions with accept, dismiss, dismissed-reset and batch rotation.
+- Added manual phrase + target URL suggestions.
+- Added manual source-URL mode for finding possible outgoing internal links from one source page.
+- Added resettable suggestion rotation records for automatic and manual suggestions.
+- Added one-click cleanup for reports, temporary scan states and suggestion records while preserving settings.
+- Fixed broken-link tab counters so restricted 401/403 warning rows are counted with the rows shown in the table.
+- Hardened suggestion rotation so empty or malformed suggestion IDs do not pollute batches.
+- Hardened runtime record cleanup so deleted report/suggestion options are recreated as clean non-autoloaded empty arrays.
 - Updated `README.md` for GitHub/project use.
 - Updated `readme.txt` for WordPress plugin directory style documentation.
-- Added manual link remove/replace actions for broken and redirect reports.
-- Preserved the active report tab after manual scans and report clearing.
+- Built `linkflow-auditor-1.10.3.zip` with a top-level `linkflow-auditor` folder and without local metadata or old ZIP files.
+
+## Latest Validation
+
+Last checked: 2026-07-06.
+
+Passed:
+
+- PHP syntax check for every plugin PHP file.
+- `node --check assets/admin.js`.
+- WordPress runtime load check through WP-CLI against local WordPress 7.0 test runtime.
+- ZIP archive integrity test for `linkflow-auditor-1.10.3.zip`.
+- ZIP content check confirmed no `.git`, `.github`, `.DS_Store`, `PROGRESS.md` or old release ZIP files are included.
+
+Note:
+
+- WP-CLI prints a PHP 8.5 deprecation warning from its own bundled dependency. The plugin loaded successfully and the warning is not from LinkFlow Auditor files.
 
 ## Validation Checklist
 
 Run before every release package:
 
-- `php -l linkflow-auditor.php`
-- `php -l uninstall.php`
+- `find . -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l`
 - `node --check assets/admin.js`
 - Build a ZIP with a top-level `linkflow-auditor` folder.
-- Confirm the ZIP does not include old ZIP files, `.git`, `.DS_Store` or local temporary files.
+- `unzip -t linkflow-auditor-{version}.zip`
+- Confirm the ZIP does not include old ZIP files, `.git`, `.github`, `.DS_Store`, `PROGRESS.md` or local temporary files.
+- Load the main plugin file in a WordPress runtime.
+
+## Release Notes For 1.10.3
+
+Version `1.10.3` adds source-URL manual suggestions, suggestion batch rotation, cleanup controls and collapsed Link Health sections.
+
+Key changes:
+
+- Added source-URL manual suggestions that inspect one published internal URL and find possible outgoing internal-link opportunities from that content.
+- Added "Önerileri değiştir" for automatic suggestions and manual suggestions, returning batches of up to 25 results.
+- Added resettable suggestion rotation records for automatic and manual suggestion batches.
+- Added a top-level cleanup button that clears saved reports, scan states, dismissed suggestions and suggestion rotation records while preserving settings.
+- Changed Link Health issue groups into collapsed-by-default sections.
+- Fixed broken-link tab counters so restricted 401/403 warning rows are counted with visible broken-link rows.
+- Hardened cleanup state after record resets by recreating runtime options as clean non-autoloaded empty arrays.
+- Hardened suggestion batch selection by skipping suggestions with empty IDs.
+
+## Release Notes For 1.10.2
+
+Version `1.10.2` fixes cleanup and Unicode matching around suggestions.
+
+Key changes:
+
+- Fixed uninstall cleanup for dismissed automatic suggestion data.
+- Fixed Turkish `İ/i` matching in admin filters and search boxes.
+- Hardened Unicode phrase matching so link insertion uses original text offsets.
+
+## Release Notes For 1.10.1
+
+Version `1.10.1` improves dismissed suggestions and scan-date guidance.
+
+Key changes:
+
+- Added "Kaldırılan önerileri sıfırla" for dismissed automatic suggestions.
+- Added scan-date notes for suggestion data.
+- Added a prompt to run the internal scan before using least-linked manual sorting.
+
+## Release Notes For 1.10.0
+
+Version `1.10.0` adds automatic internal-link suggestions.
+
+Key changes:
+
+- Internal scans collect safe linkable phrase candidates.
+- Suggestions prioritize targets with fewer incoming internal links.
+- Suggestions can be accepted directly from the report.
+- Accepted suggestions insert a link only outside existing anchors and unsafe text regions.
+- Suggestions can be dismissed so they are not shown in future scans.
+
+## Release Notes For 1.9.0
+
+Version `1.9.0` adds manual internal-link suggestions.
+
+Key changes:
+
+- Admins can search for a phrase across published content.
+- Results can be sorted by least-linked sources, oldest first or newest first.
+- Manual suggestions skip text already inside a link, code/preformatted areas and shortcode-like text.
+- The target URL must be an internal site URL; `ana sayfa` resolves to the homepage.
 
 ## Release Notes For 1.8.0
 
@@ -54,10 +147,10 @@ Version `1.8.0` adds the External Links tab and link-fix actions to the internal
 
 Key changes:
 
-- New "Dış Linkler" tab collected during the internal scan (`collect_link_health` also gathers external links); table shows source, anchor text and target URL with remove/replace actions and a client-side search.
-- Incoming-links detail panel now stores the raw href per source (`record_incoming_detail`) and renders remove/replace actions (scope `internal`) plus an explicit close button.
-- `ajax_fix_link` accepts `external` and `internal` scopes; `update_report_after_fix` prunes the external list on removal and returns `external_count` via the shared `fix_result_counts` helper.
-- JS: detail close handler, scope-aware tab-count updates, external search filter.
+- New "Dış Linkler" tab collected during the internal scan.
+- Incoming-links detail panel stores the raw href per source and renders remove/replace actions.
+- `ajax_fix_link` accepts `external` and `internal` scopes.
+- External report rows include client-side search.
 
 ## Release Notes For 1.7.0
 
@@ -65,10 +158,9 @@ Version `1.7.0` adds the Link Health tab.
 
 Key changes:
 
-- New "Link Sağlığı" report tab summarising internal-linking problems from the last internal scan (no extra HTTP requests).
-- Five checks: duplicate permalinks, orphan content (0 incoming), dead-end content (0 outgoing), insecure http:// internal links (mixed content), and weak/empty anchor text.
-- `scan_posts` collects insecure links and weak anchors during the internal scan via `collect_link_health`; `build_health_report` assembles the tab data in `finalize_report`.
-- Health tab has its own scan button (`data-result-tab="health"`) that runs the internal scan and returns to the health tab.
+- New "Link Sağlığı" report tab summarising internal-linking problems from the last internal scan without extra HTTP requests.
+- Five checks: duplicate permalinks, orphan content, dead-end content, insecure `http://` internal links and weak/empty anchor text.
+- Health tab has its own scan button that runs the internal scan and returns to the health tab.
 
 ## Release Notes For 1.6.1
 
@@ -76,10 +168,11 @@ Version `1.6.1` fixes the duplicate-permalink incoming-link bug.
 
 Key changes:
 
-- `build_target_index` no longer deletes a URL lookup key when two published items share the same permalink path; `url_index` now maps each key to a list of target IDs.
-- `resolve_internal_href` returns an array of target IDs; incoming links are attributed to every content item at a shared URL, while outgoing is counted once per anchor.
-- Targets sharing a permalink are flagged with `shared_url` and rendered with a warning badge so the underlying duplicate can be merged/redirected.
-- Root cause found via a user report CSV: pillar pages (`cekismeli-bosanma-davasi`, `anlasmali-bosanma-davasi`) each had a post and a page at the same URL, so every incoming link resolved to nothing and showed 0.
+- `build_target_index` maps each URL lookup key to a list of target IDs.
+- `resolve_internal_href` returns all matching target IDs.
+- Incoming links are attributed to every content item at a shared URL.
+- Outgoing link count is still counted once per anchor.
+- Targets sharing a permalink are flagged with `shared_url` and rendered with a warning badge.
 
 ## Release Notes For 1.6.0
 
@@ -87,11 +180,12 @@ Version `1.6.0` reworks the internal link report for accuracy and reporting.
 
 Key changes:
 
-- Incoming links are now measured primarily as unique linking pages; total link occurrences remain as a secondary column.
-- Internal counting renders block/shortcode/page-builder content (`do_blocks` + `do_shortcode`) before counting; disable with the `linkflow_auditor_render_content` filter.
-- Fixed multibyte (Turkish) slug lowercasing in `normalize_path`/`normalize_host` via a new `mb_lower` helper so accented internal links match.
-- Added an auditable incoming-link detail panel (source posts, anchor text, per-source counts) stored in `incoming_detail` on each report row.
-- Added a client-side filter/report bar (presets 0, 0-3, 1-3, 4+, custom range, title search) plus UTF-8 CSV export.
+- Incoming links are measured primarily as unique linking pages.
+- Total link occurrences remain as a secondary column.
+- Internal counting renders block/shortcode/page-builder content before counting.
+- Fixed multibyte Turkish slug lowercasing in URL/path matching.
+- Added an auditable incoming-link detail panel.
+- Added a client-side filter/report bar and UTF-8 CSV export.
 - Modernised the admin CSS and added a hero header.
 
 ## Release Notes For 1.5.1
@@ -101,8 +195,8 @@ Version `1.5.1` is a tab-state fix release.
 Key changes:
 
 - Manual scans keep the user on the report tab that started the scan.
-- Broken link and redirect scans reopen the matching report tab after the page refreshes.
-- Clearing a report also keeps the current tab selected after refresh.
+- Broken link and redirect scans reopen the matching report tab after refresh.
+- Clearing a report keeps the current tab selected after refresh.
 
 ## Release Notes For 1.5.0
 
@@ -128,9 +222,8 @@ Key changes:
 
 ## Next Recommended Steps
 
-- Test the generated ZIP on a staging WordPress site.
+- Test `linkflow-auditor-1.10.3.zip` on a staging WordPress site.
 - Run each report tab separately with a small content set first.
-- Confirm legacy settings migrate correctly if the old plugin data exists in the same WordPress database.
-- Decide whether to translate the admin UI strings to English before public WordPress.org submission.
+- Confirm legacy settings migrate correctly if old plugin data exists in the same WordPress database.
 - Add screenshots before a WordPress.org plugin directory submission.
 - Add a `languages/` directory and `.pot` file before localization work.

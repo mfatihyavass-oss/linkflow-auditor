@@ -12,7 +12,7 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 	 * Renders the dashboard widget and Tools admin page.
 	 */
 	final class LinkFlow_Auditor_Admin_Page {
-		private const VERSION                 = '1.10.2';
+		private const VERSION                 = '1.10.3';
 		private const NONCE_ACTION            = 'linkflow_auditor_admin';
 		private const PAGE_SLUG               = 'linkflow-auditor';
 		private const CRON_HOOK               = 'linkflow_auditor_run_background_scan';
@@ -24,7 +24,7 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 		private const SCAN_MODE_EXTERNAL      = 'external';
 		private const SCAN_MODE_INTERNAL_FIX  = 'internal';
 		private const HEALTH_DISPLAY_CAP      = 100;
-		private const SUGGESTION_DISPLAY_CAP  = 500;
+		private const SUGGESTION_BATCH_SIZE   = 25;
 
 		/**
 		 * Persistent report/settings store.
@@ -132,6 +132,7 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 						'scanning' => esc_html__( 'Taranıyor...', 'linkflow-auditor' ),
 						'done'     => esc_html__( 'Rapor hazır. Sayfa yenileniyor...', 'linkflow-auditor' ),
 						'clearing' => esc_html__( 'Rapor siliniyor...', 'linkflow-auditor' ),
+						'clearingAll' => esc_html__( 'Uygulama kayıtları siliniyor...', 'linkflow-auditor' ),
 						'error'    => esc_html__( 'İşlem tamamlanamadı. Lütfen tekrar deneyin.', 'linkflow-auditor' ),
 						'fixing'   => esc_html__( 'Link güncelleniyor...', 'linkflow-auditor' ),
 						'removing' => esc_html__( 'Link kaldırılıyor...', 'linkflow-auditor' ),
@@ -139,13 +140,18 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 						'dismissing' => esc_html__( 'Öneri kaldırılıyor...', 'linkflow-auditor' ),
 						'resetting' => esc_html__( 'Kaldırılan öneriler sıfırlanıyor...', 'linkflow-auditor' ),
 						'searching' => esc_html__( 'Öneriler aranıyor...', 'linkflow-auditor' ),
+						'changingSuggestions' => esc_html__( 'Farklı öneriler hazırlanıyor...', 'linkflow-auditor' ),
+						'clearingSuggestionRecords' => esc_html__( 'Öneri seçim kaydı siliniyor...', 'linkflow-auditor' ),
 						'confirmRemove'  => esc_html__( 'Bu link kaldırılsın mı? (Bağlantı silinir, metin yazıda kalır.)', 'linkflow-auditor' ),
 						'confirmReplace' => esc_html__( 'Bu link yönlendirilen adresle değiştirilsin mi?', 'linkflow-auditor' ),
 						'confirmAccept'  => esc_html__( 'Bu öneri kabul edilsin ve kaynak içerikteki ifade hedef sayfaya linklensin mi?', 'linkflow-auditor' ),
 						'confirmDismiss' => esc_html__( 'Bu öneri kaldırılsın ve tekrar önerilmesin mi?', 'linkflow-auditor' ),
 						'confirmResetDismissed' => esc_html__( 'Kaldırılan öneriler sıfırlansın mı? Sonra önerileri yenilerseniz tekrar görünebilirler.', 'linkflow-auditor' ),
+						'confirmClearSuggestionRecords' => esc_html__( 'Öneri seçim kaydı silinsin mi? Sonrasında öneriler ilk sıradan tekrar gösterilebilir.', 'linkflow-auditor' ),
+						'confirmClearAllRecords' => esc_html__( 'Tüm raporlar, geçici tarama kayıtları ve öneri kayıtları silinsin mi? Ayarlar korunur.', 'linkflow-auditor' ),
 						'emptyUrl'       => esc_html__( 'Lütfen yeni bir URL girin.', 'linkflow-auditor' ),
 						'emptyAnchor'    => esc_html__( 'Lütfen linklenecek ifadeyi girin.', 'linkflow-auditor' ),
+						'emptySourceUrl' => esc_html__( 'Lütfen kaynak URL girin.', 'linkflow-auditor' ),
 					),
 				)
 			);
@@ -185,11 +191,26 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 				echo '</div></div>';
 				echo '<span class="lfa-hero-version">v' . esc_html( self::VERSION ) . '</span>';
 				echo '</div>';
+				$this->render_data_cleanup_bar();
 				$this->render_notice();
 				$this->render_settings_form();
 				$this->render_status( $report, false );
 				$this->render_report_tabs( $report );
 
+				echo '</div>';
+			}
+
+			private function render_data_cleanup_bar(): void {
+				echo '<div class="lfa-cleanup-bar">';
+				echo '<div>';
+				echo '<strong>' . esc_html__( 'Kayıt temizliği', 'linkflow-auditor' ) . '</strong>';
+				echo '<span>' . esc_html__( 'Son rapor, geçici tarama oturumları ve öneri kayıtlarını siler; ayarlar korunur.', 'linkflow-auditor' ) . '</span>';
+				echo '</div>';
+				printf(
+					'<button type="button" class="button lfa-clear-all-records">%s</button>',
+					esc_html__( 'Tüm kayıtları sil', 'linkflow-auditor' )
+				);
+				echo '<div class="lfa-message" aria-live="polite"></div>';
 				echo '</div>';
 			}
 
@@ -312,7 +333,7 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 					isset( $report['broken_checked_links'] ) ? (int) $report['broken_checked_links'] : 0,
 					isset( $report['redirect_checked_links'] ) ? (int) $report['redirect_checked_links'] : 0
 				);
-				$broken      = isset( $report['broken_link_count'] ) ? (int) $report['broken_link_count'] : count( (array) ( $report['broken_links'] ?? array() ) );
+				$broken      = $this->get_broken_issue_count( $report );
 				$redirected  = isset( $report['redirect_link_count'] ) ? (int) $report['redirect_link_count'] : $this->count_redirect_usage( (array) ( $report['redirect_links'] ?? array() ) );
 
 				if ( $compact ) {
@@ -324,7 +345,7 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 						$total_src,
 						esc_html__( 'Link:', 'linkflow-auditor' ),
 						$checked,
-						esc_html__( 'Kırık:', 'linkflow-auditor' ),
+						esc_html__( 'Sorunlu:', 'linkflow-auditor' ),
 						$broken,
 						esc_html__( 'Yönlendirmeli:', 'linkflow-auditor' ),
 						$redirected
@@ -343,7 +364,7 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 				echo '<div class="lfa-stats" aria-label="' . esc_attr__( 'Rapor özeti', 'linkflow-auditor' ) . '">';
 				$this->render_stat_card( $total_src, __( 'Taranan sayfa/yazı', 'linkflow-auditor' ) );
 				$this->render_stat_card( $checked, __( 'Kontrol edilen link', 'linkflow-auditor' ) );
-				$this->render_stat_card( $broken, __( 'Kırık link', 'linkflow-auditor' ) );
+				$this->render_stat_card( $broken, __( 'Sorunlu link', 'linkflow-auditor' ) );
 				$this->render_stat_card( $redirected, __( 'Yönlendirmeli link', 'linkflow-auditor' ) );
 				echo '</div>';
 			}
@@ -639,7 +660,7 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 				$broken_links   = array_values( array_filter( (array) ( $report['broken_links'] ?? array() ), 'is_array' ) );
 				$redirect_links = array_values( array_filter( (array) ( $report['redirect_links'] ?? array() ), 'is_array' ) );
 				$suggestion_count = isset( $report['suggestion_count'] ) ? (int) $report['suggestion_count'] : count( $suggestions );
-				$broken_count   = isset( $report['broken_link_count'] ) ? (int) $report['broken_link_count'] : count( $broken_links );
+				$broken_count   = $this->get_broken_issue_count( $report, $broken_links );
 				$redirect_count = isset( $report['redirect_link_count'] ) ? (int) $report['redirect_link_count'] : $this->count_redirect_usage( $redirect_links );
 				$has_internal   = ! empty( $report['internal_created_at'] ) || isset( $report['total_targets'] ) || ! empty( $rows );
 				$has_broken     = ! empty( $report['broken_created_at'] ) || isset( $report['broken_link_count'] ) || ! empty( $broken_links );
@@ -777,27 +798,27 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 						$this->render_health_duplicate_group( $group );
 					}
 				}
-				echo '</section>';
+				$this->close_health_section();
 
 				// Orphan content (critical).
 				$this->open_health_section( 'critical', '🕳️', __( 'Öksüz içerik (0 gelen link)', 'linkflow-auditor' ), count( $orphans ), __( 'Sitenizde hiçbir içerikten iç link almayan yayınlar. Keşfedilmesi ve sıralanması zordur; ilgili yazılardan bunlara link verin.', 'linkflow-auditor' ) );
 				$this->render_health_item_table( $orphans );
-				echo '</section>';
+				$this->close_health_section();
 
 				// Dead-end content (warning).
 				$this->open_health_section( 'warning', '🚧', __( 'Çıkışsız içerik (0 çıkan link)', 'linkflow-auditor' ), count( $dead_ends ), __( 'Hiç iç link vermeyen “çıkmaz sokak” sayfalar. Link gücünü dağıtmaz; ilgili içeriklere bağlantı ekleyin.', 'linkflow-auditor' ) );
 				$this->render_health_item_table( $dead_ends );
-				echo '</section>';
+				$this->close_health_section();
 
 				// Insecure (mixed content) links (warning).
 				$this->open_health_section( 'warning', '🔓', __( 'Güvensiz (http) iç linkler', 'linkflow-auditor' ), (int) ( $health['insecure_total'] ?? 0 ), __( 'Siteniz https iken http:// ile yazılmış iç linkler. Gereksiz yönlendirme ve karışık içerik (mixed content) uyarısı yaratır; https:// ile değiştirin.', 'linkflow-auditor' ) );
 				$this->render_health_insecure_table( $insecure, (int) ( $health['insecure_total'] ?? 0 ) );
-				echo '</section>';
+				$this->close_health_section();
 
 				// Weak/empty anchor text (info).
 				$this->open_health_section( 'info', '🏷️', __( 'Zayıf/eksik anchor text', 'linkflow-auditor' ), (int) ( $health['weak_total'] ?? 0 ), __( '“Tıklayın”, “buraya”, “devamı” gibi genel ya da tamamen boş bağlantı metinleri. Hedefi anlatan açıklayıcı metinler kullanın.', 'linkflow-auditor' ) );
 				$this->render_health_weak_table( $weak, (int) ( $health['weak_total'] ?? 0 ) );
-				echo '</section>';
+				$this->close_health_section();
 			}
 
 			private function render_suggestions_tab( array $report, bool $has_internal ): void {
@@ -814,6 +835,7 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 				echo '<p class="description">' . esc_html__( 'Öneriler, daha az iç link alan hedeflere öncelik verir ve sadece kaynak içerikte güvenle linklenebilecek ifade bulunduğunda gösterilir.', 'linkflow-auditor' ) . '</p>';
 				$this->render_internal_scan_note( $report, $has_internal, 'suggestions' );
 				$this->render_dismissed_suggestions_reset_box();
+				$this->render_suggestion_rotation_reset_box( 'normal' );
 
 				if ( ! $has_internal ) {
 					echo '<p class="lfa-empty">' . esc_html__( 'İç link önerileri için önce taramayı çalıştırın.', 'linkflow-auditor' ) . '</p>';
@@ -828,14 +850,50 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 					return;
 				}
 
+				$shown    = array_slice( $suggestions, 0, self::SUGGESTION_BATCH_SIZE );
+				$has_more = count( $suggestions ) > self::SUGGESTION_BATCH_SIZE;
+
+				echo '<div class="lfa-suggestion-results" aria-live="polite">';
+				echo $this->render_saved_suggestions_results( $shown, $total, $has_more );
+				echo '</div>';
+			}
+
+			public function render_saved_suggestions_results( array $suggestions, int $total, bool $has_more ): string {
+				if ( empty( $suggestions ) ) {
+					return '<p class="lfa-empty">' . esc_html__( 'Gösterilecek farklı öneri kalmadı. Seçim kaydını silerseniz öneriler baştan listelenir.', 'linkflow-auditor' ) . '</p>';
+				}
+
+				$current_ids = array();
+				foreach ( $suggestions as $suggestion ) {
+					$id = sanitize_key( (string) ( $suggestion['id'] ?? '' ) );
+					if ( '' !== $id ) {
+						$current_ids[] = $id;
+					}
+				}
+
+				ob_start();
 				printf(
-					'<div class="lfa-suggestion-toolbar"><input type="search" class="lfa-suggestion-search regular-text" placeholder="%s"><span class="lfa-external-summary">%s <strong>%s</strong></span></div>',
-					esc_attr__( 'Kaynak, hedef veya anchor metninde ara…', 'linkflow-auditor' ),
+					'<input type="hidden" class="lfa-current-suggestion-ids" value="%s">',
+					esc_attr( implode( ',', $current_ids ) )
+				);
+				echo '<div class="lfa-suggestion-toolbar">';
+				printf(
+					'<input type="search" class="lfa-suggestion-search regular-text" placeholder="%s">',
+					esc_attr__( 'Kaynak, hedef veya anchor metninde ara…', 'linkflow-auditor' )
+				);
+				echo '<div class="lfa-suggestion-toolbar-actions">';
+				printf(
+					'<span class="lfa-external-summary">%s <strong>%s</strong></span>',
 					esc_html__( 'Toplam öneri:', 'linkflow-auditor' ),
 					esc_html( number_format_i18n( $total ) )
 				);
-
-				$shown = array_slice( $suggestions, 0, self::SUGGESTION_DISPLAY_CAP );
+				printf(
+					'<button type="button" class="button lfa-change-suggestions"%s>%s</button>',
+					disabled( ! $has_more, true, false ),
+					esc_html__( 'Önerileri değiştir', 'linkflow-auditor' )
+				);
+				echo '</div>';
+				echo '</div>';
 
 				echo '<div class="lfa-table-wrap"><table class="widefat striped lfa-status-table lfa-suggestion-table"><thead><tr>';
 				echo '<th>' . esc_html__( 'Kaynak içerik', 'linkflow-auditor' ) . '</th>';
@@ -845,7 +903,7 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 				echo '<th>' . esc_html__( 'İşlem', 'linkflow-auditor' ) . '</th>';
 				echo '</tr></thead><tbody>';
 
-				foreach ( $shown as $suggestion ) {
+				foreach ( $suggestions as $suggestion ) {
 					$source_title = (string) ( $suggestion['source_title'] ?? '' );
 					$source_url   = (string) ( $suggestion['source_url'] ?? '' );
 					$target_title = (string) ( $suggestion['target_title'] ?? '' );
@@ -873,19 +931,18 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 
 				echo '</tbody></table></div>';
 
-				if ( count( $suggestions ) > self::SUGGESTION_DISPLAY_CAP ) {
-					printf(
-						'<p class="lfa-health-more">%s</p>',
-						esc_html(
-							sprintf(
-								/* translators: 1: shown count, 2: remaining count. */
-								__( 'İlk %1$s öneri gösteriliyor; %2$s tane daha var.', 'linkflow-auditor' ),
-								number_format_i18n( self::SUGGESTION_DISPLAY_CAP ),
-								number_format_i18n( count( $suggestions ) - self::SUGGESTION_DISPLAY_CAP )
-							)
+				printf(
+					'<p class="lfa-health-more">%s</p>',
+					esc_html(
+						sprintf(
+							/* translators: %s: shown count. */
+							__( 'Bu partide en fazla %s öneri gösterilir.', 'linkflow-auditor' ),
+							number_format_i18n( self::SUGGESTION_BATCH_SIZE )
 						)
-					);
-				}
+					)
+				);
+
+				return (string) ob_get_clean();
 			}
 
 			private function render_suggestion_context( array $suggestion ): string {
@@ -931,7 +988,7 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 			private function render_internal_scan_note( array $report, bool $has_internal, string $context ): void {
 				if ( ! $has_internal ) {
 					if ( 'manual' === $context ) {
-						echo '<p class="lfa-scan-note lfa-scan-note--warning">' . esc_html__( 'En az iç link alan kaynaklar sıralamasını doğru kullanmak için önce İç Link Sayımı sekmesinden iç link taraması yapın.', 'linkflow-auditor' ) . '</p>';
+						echo '<p class="lfa-scan-note lfa-scan-note--warning">' . esc_html__( 'En az iç link alanlar sıralamasını doğru kullanmak için önce İç Link Sayımı sekmesinden iç link taraması yapın.', 'linkflow-auditor' ) . '</p>';
 					}
 					return;
 				}
@@ -949,7 +1006,7 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 						esc_html(
 							sprintf(
 								/* translators: %s: scan date. */
-								__( 'En az iç link alan kaynaklar sıralaması %s tarihli iç link taramasına göre yapılır.', 'linkflow-auditor' ),
+								__( 'En az iç link alanlar sıralaması %s tarihli iç link taramasına göre yapılır.', 'linkflow-auditor' ),
 								$date
 							)
 						)
@@ -987,6 +1044,20 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 				echo '</div>';
 			}
 
+			private function render_suggestion_rotation_reset_box( string $scope ): void {
+				$scope = 'manual' === $scope ? 'manual' : 'normal';
+
+				echo '<div class="lfa-dismissed-reset lfa-rotation-reset">';
+				echo '<span>' . esc_html__( 'Öneri seçim kaydı', 'linkflow-auditor' ) . '</span>';
+				printf(
+					'<button type="button" class="button button-small lfa-clear-suggestion-rotation" data-scope="%s">%s</button>',
+					esc_attr( $scope ),
+					esc_html__( 'Seçim kaydını sil', 'linkflow-auditor' )
+				);
+				echo '<span class="description">' . esc_html__( 'Önerileri değiştirirken daha önce gösterilen partileri hatırlayan kayıt temizlenir.', 'linkflow-auditor' ) . '</span>';
+				echo '</div>';
+			}
+
 			private function render_suggestion_action( array $suggestion ): string {
 				$suggestion_id = (string) ( $suggestion['id'] ?? '' );
 
@@ -1004,6 +1075,17 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 
 			private function render_manual_suggestions_tab( array $report, bool $has_internal ): void {
 				echo '<div class="lfa-manual-builder" data-lfa-manual-builder>';
+				echo '<div class="lfa-manual-mode" role="radiogroup" aria-label="' . esc_attr__( 'Manuel öneri modu', 'linkflow-auditor' ) . '">';
+				printf(
+					'<label><input type="radio" name="lfa-manual-mode" value="phrase" checked> %s</label>',
+					esc_html__( 'İfade + hedef URL', 'linkflow-auditor' )
+				);
+				printf(
+					'<label><input type="radio" name="lfa-manual-mode" value="source_url"> %s</label>',
+					esc_html__( 'Kaynak URL’den bul', 'linkflow-auditor' )
+				);
+				echo '</div>';
+				echo '<div class="lfa-manual-mode-fields lfa-manual-mode-fields--phrase">';
 				echo '<div class="lfa-manual-field">';
 				echo '<label for="lfa-manual-anchor">' . esc_html__( 'Linklenecek ifade', 'linkflow-auditor' ) . '</label>';
 				printf(
@@ -1018,10 +1100,20 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 					esc_attr__( 'https://site.com/hedef-sayfa/ veya ana sayfa', 'linkflow-auditor' )
 				);
 				echo '</div>';
+				echo '</div>';
+				echo '<div class="lfa-manual-mode-fields lfa-manual-mode-fields--source" hidden>';
+				echo '<div class="lfa-manual-field">';
+				echo '<label for="lfa-manual-source-url">' . esc_html__( 'Kaynak URL', 'linkflow-auditor' ) . '</label>';
+				printf(
+					'<input type="text" id="lfa-manual-source-url" class="regular-text lfa-manual-source-url" placeholder="%s">',
+					esc_attr__( 'https://site.com/kaynak-yazi/', 'linkflow-auditor' )
+				);
+				echo '</div>';
+				echo '</div>';
 				echo '<div class="lfa-manual-field">';
 				echo '<label for="lfa-manual-sort">' . esc_html__( 'Sıralama', 'linkflow-auditor' ) . '</label>';
 				echo '<select id="lfa-manual-sort" class="lfa-manual-sort">';
-				echo '<option value="least_links">' . esc_html__( 'En az iç link alan kaynaklar', 'linkflow-auditor' ) . '</option>';
+				echo '<option value="least_links">' . esc_html__( 'En az iç link alanlar', 'linkflow-auditor' ) . '</option>';
 				echo '<option value="oldest">' . esc_html__( 'En eski yazılar önce', 'linkflow-auditor' ) . '</option>';
 				echo '<option value="newest">' . esc_html__( 'En yeni yazılar önce', 'linkflow-auditor' ) . '</option>';
 				echo '</select>';
@@ -1033,20 +1125,26 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 				echo '<span class="spinner lfa-spinner" aria-hidden="true"></span>';
 				echo '</div>';
 				$this->render_internal_scan_note( $report, $has_internal, 'manual' );
-				echo '<p class="description">' . esc_html__( 'En fazla 25 kaynak içerik listelenir. Sonuçlar yalnızca ifadenin düz metinde, mevcut bir linkin dışında bulunduğu yerlerden oluşturulur.', 'linkflow-auditor' ) . '</p>';
+				$this->render_suggestion_rotation_reset_box( 'manual' );
+				echo '<p class="description">' . esc_html__( 'Her partide en fazla 25 öneri listelenir. Sonuçlar yalnızca düz metinde, mevcut bir linkin dışında bulunan güvenli ifadelerden oluşturulur.', 'linkflow-auditor' ) . '</p>';
 				echo '<div class="lfa-message" aria-live="polite"></div>';
 				echo '<div class="lfa-manual-results" aria-live="polite"></div>';
 			}
 
 			private function open_health_section( string $severity, string $icon, string $title, int $count, string $desc ): void {
 				printf( '<section class="lfa-health-card lfa-health-card--%s">', esc_attr( $severity ) );
+				echo '<details class="lfa-health-details">';
 				printf(
-					'<div class="lfa-health-head"><span class="lfa-health-icon" aria-hidden="true">%s</span><h3>%s</h3><span class="lfa-health-badge">%s</span></div>',
+					'<summary class="lfa-health-head"><span class="lfa-health-icon" aria-hidden="true">%s</span><h3>%s</h3><span class="lfa-health-badge">%s</span><span class="lfa-health-caret" aria-hidden="true">▾</span></summary>',
 					$icon,
 					esc_html( $title ),
 					esc_html( number_format_i18n( $count ) )
 				);
 				printf( '<p class="lfa-health-desc">%s</p>', esc_html( $desc ) );
+			}
+
+			private function close_health_section(): void {
+				echo '</details></section>';
 			}
 
 			private function render_health_ok(): void {
@@ -1503,20 +1601,53 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 				return wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $timestamp );
 			}
 
-		public function render_manual_suggestions_results( array $suggestions, string $target_url ): string {
+		public function render_manual_suggestions_results( array $suggestions, string $target_url, string $mode = 'phrase', string $source_url = '', bool $has_more = false, string $empty_message = '' ): string {
 			if ( empty( $suggestions ) ) {
-				return '<p class="lfa-empty">' . esc_html__( 'Uygun düz metin eşleşmesi bulunamadı.', 'linkflow-auditor' ) . '</p>';
+				$message = '' !== $empty_message ? $empty_message : esc_html__( 'Uygun düz metin eşleşmesi bulunamadı.', 'linkflow-auditor' );
+				return '<p class="lfa-empty">' . esc_html( $message ) . '</p>';
+			}
+
+			$is_source_mode    = 'source_url' === $mode;
+			$source_summary_url = $is_source_mode ? (string) ( $suggestions[0]['source_url'] ?? $source_url ) : $source_url;
+			$current_ids       = array();
+			foreach ( $suggestions as $suggestion ) {
+				$id = sanitize_key( (string) ( $suggestion['id'] ?? '' ) );
+				if ( '' !== $id ) {
+					$current_ids[] = $id;
+				}
 			}
 
 			ob_start();
 			printf(
-				'<div class="lfa-manual-result-summary">%s <strong>%s</strong></div>',
-				esc_html__( 'Hedef:', 'linkflow-auditor' ),
-				$this->render_url_cell( $target_url )
+				'<input type="hidden" class="lfa-current-suggestion-ids" value="%s">',
+				esc_attr( implode( ',', $current_ids ) )
 			);
+			echo '<div class="lfa-manual-result-head">';
+			if ( $is_source_mode ) {
+				printf(
+					'<div class="lfa-manual-result-summary">%s <strong>%s</strong></div>',
+					esc_html__( 'Kaynak:', 'linkflow-auditor' ),
+					$this->render_url_cell( $source_summary_url )
+				);
+			} else {
+				printf(
+					'<div class="lfa-manual-result-summary">%s <strong>%s</strong></div>',
+					esc_html__( 'Hedef:', 'linkflow-auditor' ),
+					$this->render_url_cell( $target_url )
+				);
+			}
+			printf(
+				'<button type="button" class="button lfa-manual-change-suggestions"%s>%s</button>',
+				disabled( ! $has_more, true, false ),
+				esc_html__( 'Önerileri değiştir', 'linkflow-auditor' )
+			);
+			echo '</div>';
 			echo '<div class="lfa-table-wrap"><table class="widefat striped lfa-status-table lfa-suggestion-table"><thead><tr>';
 			echo '<th>' . esc_html__( 'Kaynak içerik', 'linkflow-auditor' ) . '</th>';
 			echo '<th>' . esc_html__( 'Linklenecek ifade', 'linkflow-auditor' ) . '</th>';
+			if ( $is_source_mode ) {
+				echo '<th>' . esc_html__( 'Link verilecek URL', 'linkflow-auditor' ) . '</th>';
+			}
 			echo '<th>' . esc_html__( 'İşlem', 'linkflow-auditor' ) . '</th>';
 			echo '</tr></thead><tbody>';
 
@@ -1524,11 +1655,25 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 				echo '<tr class="lfa-manual-suggestion-row">';
 				echo '<td>' . $this->health_title_cell( (string) ( $suggestion['source_title'] ?? '' ), (string) ( $suggestion['source_url'] ?? '' ) ) . $this->render_suggestion_source_meta( $suggestion ) . '</td>';
 				echo '<td>' . $this->render_suggestion_context( $suggestion ) . '</td>';
+				if ( $is_source_mode ) {
+					echo '<td>' . $this->health_title_cell( (string) ( $suggestion['target_title'] ?? '' ), (string) ( $suggestion['target_url'] ?? '' ) ) . '</td>';
+				}
 				echo '<td>' . $this->render_manual_suggestion_action( $suggestion, $target_url ) . '</td>';
 				echo '</tr>';
 			}
 
 			echo '</tbody></table></div>';
+
+			printf(
+				'<p class="lfa-health-more">%s</p>',
+				esc_html(
+					sprintf(
+						/* translators: %s: shown count. */
+						__( 'Bu partide en fazla %s öneri gösterilir.', 'linkflow-auditor' ),
+						number_format_i18n( self::SUGGESTION_BATCH_SIZE )
+					)
+				)
+			);
 
 			return (string) ob_get_clean();
 		}
@@ -1536,8 +1681,9 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 		private function render_manual_suggestion_action( array $suggestion, string $target_url ): string {
 			$source_id = isset( $suggestion['source_id'] ) ? (int) $suggestion['source_id'] : 0;
 			$anchor    = (string) ( $suggestion['anchor'] ?? '' );
+			$target    = '' !== $target_url ? $target_url : (string) ( $suggestion['target_url'] ?? '' );
 
-			if ( $source_id <= 0 || '' === trim( $anchor ) ) {
+			if ( $source_id <= 0 || '' === trim( $anchor ) || '' === trim( $target ) ) {
 				return '&mdash;';
 			}
 
@@ -1545,7 +1691,7 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 				'<button type="button" class="button button-small button-primary lfa-accept-manual-suggestion" data-source-id="%d" data-anchor="%s" data-target-url="%s">%s</button>',
 				$source_id,
 				esc_attr( $anchor ),
-				esc_attr( $target_url ),
+				esc_attr( $target ),
 				esc_html__( 'Kabul et', 'linkflow-auditor' )
 			);
 		}
@@ -1562,6 +1708,25 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 				+ count( (array) ( $health['dead_ends'] ?? array() ) )
 				+ (int) ( $health['insecure_total'] ?? 0 )
 				+ (int) ( $health['weak_total'] ?? 0 );
+		}
+
+		/**
+		 * Count every row shown in the broken-link table, including 401/403 warnings.
+		 *
+		 * @param array<string,mixed>            $report Saved report.
+		 * @param array<int,array<string,mixed>> $broken_links Optional prepared rows.
+		 */
+		private function get_broken_issue_count( array $report, array $broken_links = array() ): int {
+			if ( isset( $report['broken_link_count'] ) || isset( $report['warning_link_count'] ) ) {
+				return max( 0, (int) ( $report['broken_link_count'] ?? 0 ) )
+					+ max( 0, (int) ( $report['warning_link_count'] ?? 0 ) );
+			}
+
+			if ( empty( $broken_links ) ) {
+				$broken_links = array_values( array_filter( (array) ( $report['broken_links'] ?? array() ), 'is_array' ) );
+			}
+
+			return count( $broken_links );
 		}
 
 		private function get_post_type_label( string $post_type ): string {
