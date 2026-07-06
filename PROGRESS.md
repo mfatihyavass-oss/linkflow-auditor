@@ -8,11 +8,11 @@ Current package target:
 
 - Plugin name: LinkFlow Auditor
 - Slug: `linkflow-auditor`
-- Version: `1.10.4`
+- Version: `1.11.6`
 - Main file: `linkflow-auditor.php`
 - Text domain: `linkflow-auditor`
 - GitHub repository target: `mfatihyavass-oss/linkflow-auditor`
-- Latest package: `linkflow-auditor-1.10.4.zip`
+- Latest package: `linkflow-auditor-1.11.6.zip`
 
 ## Completed
 
@@ -47,30 +47,33 @@ Current package target:
 - Added automatic internal-link suggestions with accept, dismiss, dismissed-reset and batch rotation.
 - Added manual phrase + target URL suggestions.
 - Added manual source-URL mode for finding possible outgoing internal links from one source page.
+- Added a post/page editor metabox that scans the edited content and returns up to 25 outgoing internal-link suggestions with a priority selector (least linked, oldest or newest targets) and one-click accept that links directly into the content.
+- Broadened suggestion matching so shared two-word groups and distinctive single words (stop words removed) become anchor candidates, not only full title phrases.
+- Added a per-scan "Negatif kelimeler" field in the editor metabox to exclude chosen words from being used as anchor text.
 - Added resettable suggestion rotation records for automatic and manual suggestions.
 - Added one-click cleanup for reports, temporary scan states and suggestion records while preserving settings.
 - Fixed broken-link tab counters so restricted 401/403 warning rows are counted with the rows shown in the table.
 - Hardened suggestion rotation so empty or malformed suggestion IDs do not pollute batches.
 - Hardened runtime record cleanup so deleted report/suggestion options are recreated as clean non-autoloaded empty arrays.
+- Fixed the editor metabox accept flow: the accepted link is saved to the post content and the editor reloads so the open block editor no longer overwrites it on the next save.
+- Added bulk apply to the editor metabox: per-suggestion select checkboxes, a select-all, and an always-visible "Seçilenleri uygula" button that applies the selected suggestions sequentially and refreshes the editor once at the end.
+- Switched admin/editor asset versioning to `filemtime` so JS/CSS changes bust the browser and CDN cache automatically.
 - Updated `README.md` for GitHub/project use.
 - Updated `readme.txt` for WordPress plugin directory style documentation.
-- Built `linkflow-auditor-1.10.4.zip` with a top-level `linkflow-auditor` folder and without local metadata or old ZIP files.
+- Built `linkflow-auditor-1.11.6.zip` with a top-level `linkflow-auditor` folder and without local metadata or old ZIP files.
 
 ## Latest Validation
 
-Last checked: 2026-07-06.
+Last checked: 2026-07-07.
 
 Passed:
 
 - PHP syntax check for every plugin PHP file.
 - `node --check assets/admin.js`.
-- WordPress runtime load check through WP-CLI against local WordPress 7.0 test runtime.
-- ZIP archive integrity test for `linkflow-auditor-1.10.4.zip`.
+- `node --check assets/editor.js`.
+- End-to-end stub test of editor suggestion generation, single accept and sequential bulk apply (Gutenberg block content included).
+- ZIP archive integrity test for `linkflow-auditor-1.11.6.zip`.
 - ZIP content check confirmed no `.git`, `.github`, `.DS_Store`, `PROGRESS.md` or old release ZIP files are included.
-
-Note:
-
-- WP-CLI prints a PHP 8.5 deprecation warning from its own bundled dependency. The plugin loaded successfully and the warning is not from LinkFlow Auditor files.
 
 ## Validation Checklist
 
@@ -78,10 +81,83 @@ Run before every release package:
 
 - `find . -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l`
 - `node --check assets/admin.js`
+- `node --check assets/editor.js`
 - Build a ZIP with a top-level `linkflow-auditor` folder.
 - `unzip -t linkflow-auditor-{version}.zip`
 - Confirm the ZIP does not include old ZIP files, `.git`, `.github`, `.DS_Store`, `PROGRESS.md` or local temporary files.
 - Load the main plugin file in a WordPress runtime.
+
+## Release Notes For 1.11.6
+
+Version `1.11.6` makes the editor bulk-apply button reliably visible and fixes recurring asset caching.
+
+Key changes:
+
+- The editor "Seçilenleri uygula" bulk button is always visible and enabled (large primary button); clicking it with nothing selected shows a hint instead of a greyed-out button.
+- Admin and editor scripts/styles are versioned by `filemtime`, so any JS/CSS change busts the browser and CDN cache even when the plugin version is unchanged.
+
+## Release Notes For 1.11.5
+
+Version `1.11.5` adds bulk apply to the editor metabox.
+
+Key changes:
+
+- Each suggestion has a select checkbox plus a header select-all, and a "Seçilenleri uygula" button applies the selected suggestions in one pass.
+- Suggestions are applied sequentially so each link is saved before the next lookup runs against the updated content, and the editor refreshes only once at the end.
+
+## Release Notes For 1.11.4
+
+Version `1.11.4` fixes the editor metabox accept flow.
+
+Key changes:
+
+- Accepting a suggestion saved the link to the content but the open block editor kept stale content and overwrote it on the next save. The editor now reloads after a successful accept so the added link is loaded and persists.
+- The metabox warns to save unsaved changes before accepting.
+- Aligned the HTTP link checker version constant with the plugin version.
+
+## Release Notes For 1.11.3
+
+Version `1.11.3` adds negative-word filtering to the editor metabox.
+
+Key changes:
+
+- Added a "Negatif kelimeler" field to the editor metabox. Words typed there (comma or space separated) are excluded as anchor text for that scan.
+- Negative words are merged into the shared stop-word list for the request so keyword (single-word and two-word) anchors skip them, and any remaining suggestion whose anchor still contains a negative word is dropped before the 25-row batch is returned.
+- A larger candidate pool is fetched when negative words are present so the batch can still be filled after filtering.
+
+## Release Notes For 1.11.2
+
+Version `1.11.2` broadens suggestion matching to shared keywords.
+
+Key changes:
+
+- Suggestions now also match on shared keywords: consecutive two-word groups and distinctive single words from a target's title/slug become anchor candidates, so a target can be linked when the source shares only one or two words with it instead of the whole title phrase.
+- Full-title phrases still take priority when they appear verbatim; keyword anchors are a lower-priority fallback and skip a Turkish/English stop-word list.
+- Added filters: `linkflow_auditor_suggestion_keyword_matching` (enable/disable), `linkflow_auditor_suggestion_stopwords` (stop-word list) and `linkflow_auditor_suggestion_phrase_limit` (max phrases per target, default 8).
+- Applies to every suggestion surface: the editor metabox, the automatic suggestions tab and manual source-URL suggestions.
+
+## Release Notes For 1.11.1
+
+Version `1.11.1` refines the editor metabox suggestions.
+
+Key changes:
+
+- Editor metabox suggestions now work for draft source content too, not only published content; link targets stay limited to published content.
+- Lowered the single-word anchor phrase minimum length from 8 to 5 characters (filterable via `linkflow_auditor_suggestion_single_word_min_length`) so distinctive one-word titles (e.g. Turkish legal terms) produce more suggestions in every suggestion surface.
+
+## Release Notes For 1.11.0
+
+Version `1.11.0` adds an in-editor internal-link suggestion metabox.
+
+Key changes:
+
+- Added a "LinkFlow Auditor — İç Link Önerileri" metabox to the post and page editor (classic and block editor), shown below the content like an SEO panel.
+- The metabox scans the content currently being edited and returns up to 25 outgoing internal-link suggestions built from safe plain-text phrases only.
+- Added a priority selector for the scan: least-linked targets first, oldest targets first or newest targets first.
+- Accepting a suggestion links the phrase directly into the content and removes the row; a note reminds the editor to refresh so the change is not overwritten by an in-progress editor session.
+- "Önerileri değiştir" fetches a different batch, excluding suggestions already shown in the panel.
+- Suggestions and accept run through a dedicated editor AJAX pair guarded by an `edit_post` capability check, so the existing admin (`manage_options`) endpoints are untouched.
+- Refactored the manual suggestion engine so source-URL and post-ID suggestion building share one code path (`build_link_suggestions_from_post`).
 
 ## Release Notes For 1.10.4
 
@@ -234,7 +310,8 @@ Key changes:
 
 ## Next Recommended Steps
 
-- Test `linkflow-auditor-1.10.4.zip` on a staging WordPress site.
+- Test `linkflow-auditor-1.11.6.zip` on a staging WordPress site.
+- Verify the editor metabox on both a published and a draft post/page: save, scan, switch priority, accept a suggestion (single and bulk "Seçilenleri uygula"), then confirm the editor reloads with the inserted link(s).
 - Run each report tab separately with a small content set first.
 - Confirm legacy settings migrate correctly if old plugin data exists in the same WordPress database.
 - Add screenshots before a WordPress.org plugin directory submission.

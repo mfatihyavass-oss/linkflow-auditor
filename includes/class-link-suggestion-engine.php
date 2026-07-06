@@ -66,6 +66,16 @@ if ( ! class_exists( 'LinkFlow_Auditor_Link_Suggestion_Engine' ) ) {
 			$this->add_suggestion_phrase( $phrases, $this->build_core_suggestion_phrase( $title ) );
 			$this->add_suggestion_phrase( $phrases, $this->build_slug_suggestion_phrase( $url ) );
 
+			// Also offer shorter shared-keyword anchors: two-word groups and single
+			// distinctive words from the title/slug (stop words removed). This lets a
+			// target be linked when the source only shares one or two words with it,
+			// instead of requiring the whole title phrase to appear verbatim.
+			if ( apply_filters( 'linkflow_auditor_suggestion_keyword_matching', true ) ) {
+				foreach ( $this->build_keyword_phrases( $title, $url ) as $keyword_phrase ) {
+					$this->add_suggestion_phrase( $phrases, $keyword_phrase );
+				}
+			}
+
 			$values = array_values( $phrases );
 			usort(
 				$values,
@@ -79,7 +89,88 @@ if ( ! class_exists( 'LinkFlow_Auditor_Link_Suggestion_Engine' ) ) {
 				}
 			);
 
-			return array_slice( $values, 0, 5 );
+			$limit = (int) apply_filters( 'linkflow_auditor_suggestion_phrase_limit', 8 );
+
+			return array_slice( $values, 0, max( 1, $limit ) );
+		}
+
+		/**
+		 * Build shorter shared-keyword anchor phrases from a target's title and slug.
+		 *
+		 * Produces consecutive two-word groups and individual distinctive words after
+		 * removing stop words, ordered from the longest phrase to single words. These
+		 * are lower priority than the full-title phrases (see the caller's sort), so a
+		 * verbatim title match still wins when it exists.
+		 *
+		 * @param string $title Target title.
+		 * @param string $url   Target permalink.
+		 * @return string[]
+		 */
+		private function build_keyword_phrases( string $title, string $url ): array {
+			$source = trim( $this->normalize_suggestion_phrase( $title ) . ' ' . $this->build_slug_suggestion_phrase( $url ) );
+			$words  = $this->split_suggestion_words( $source );
+
+			if ( empty( $words ) ) {
+				return array();
+			}
+
+			$stopwords = $this->suggestion_stopwords();
+			$kept      = array();
+
+			foreach ( $words as $word ) {
+				$lower = $this->url_normalizer->mb_lower( $word );
+
+				if ( isset( $stopwords[ $lower ] ) || isset( $kept[ $lower ] ) ) {
+					continue;
+				}
+
+				$kept[ $lower ] = $word;
+			}
+
+			$kept    = array_values( $kept );
+			$count   = count( $kept );
+			$phrases = array();
+
+			// Consecutive two-word groups first (more specific than single words).
+			for ( $i = 0; $i < $count - 1; $i++ ) {
+				$phrases[] = $kept[ $i ] . ' ' . $kept[ $i + 1 ];
+			}
+
+			// Then individual distinctive words.
+			foreach ( $kept as $word ) {
+				$phrases[] = $word;
+			}
+
+			return $phrases;
+		}
+
+		/**
+		 * Stop words that must not become single-word or two-word anchors.
+		 *
+		 * @return array<string,bool>
+		 */
+		private function suggestion_stopwords(): array {
+			$words = array(
+				've', 'ile', 'için', 'icin', 'bir', 'bu', 'şu', 'su', 'ya', 'veya', 'ama',
+				'fakat', 'gibi', 'kadar', 'daha', 'çok', 'cok', 'en', 'hem', 'ise', 'göre',
+				'gore', 'olan', 'olarak', 'nasıl', 'nasil', 'nedir', 'ne', 'demek', 'yani',
+				'ancak', 'hangi', 'her', 'tüm', 'tum', 'yeni', 'rehberi', 'kilavuzu',
+				'kılavuzu', 'örnekleri', 'ornekleri', 'pratikleri', 'yapılır', 'yapilir',
+				'iyi', 'the', 'and', 'or', 'of', 'to', 'for', 'with', 'from', 'that', 'this',
+			);
+
+			$words = (array) apply_filters( 'linkflow_auditor_suggestion_stopwords', $words );
+			$map   = array();
+
+			foreach ( $words as $word ) {
+				$word = $this->url_normalizer->mb_lower( trim( (string) $word ) );
+
+				if ( '' !== $word ) {
+					$map[ $word ] = true;
+				}
+			}
+
+			return $map;
 		}
 
 		/**
@@ -363,7 +454,15 @@ if ( ! class_exists( 'LinkFlow_Auditor_Link_Suggestion_Engine' ) ) {
 				return false;
 			}
 
-			if ( $words < 2 && $length < 8 ) {
+			// Single-word titles are common for Turkish legal/topic pages
+			// (e.g. "nafaka", "velayet", "boşanma", "vesayet"). Requiring 8+
+			// characters filtered most of them out and starved the suggestions.
+			// Accept distinctive single words down to a shorter, filterable
+			// minimum length while still excluding generic anchor phrases.
+			$single_word_min = (int) apply_filters( 'linkflow_auditor_suggestion_single_word_min_length', 5 );
+			$single_word_min = max( 4, $single_word_min );
+
+			if ( $words < 2 && $length < $single_word_min ) {
 				return false;
 			}
 

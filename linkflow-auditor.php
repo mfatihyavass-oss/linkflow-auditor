@@ -3,7 +3,7 @@
  * Plugin Name: LinkFlow Auditor
  * Plugin URI: https://github.com/mfatihyavass-oss/linkflow-auditor
  * Description: Audits internal links, broken links and redirecting links from the WordPress admin.
- * Version: 1.10.4
+ * Version: 1.11.6
  * Author: mfatihyavass-oss
  * Author URI: https://github.com/mfatihyavass-oss
  * Requires at least: 6.4
@@ -33,6 +33,7 @@ require_once LINKFLOW_AUDITOR_PATH . 'includes/class-link-suggestion-engine.php'
 require_once LINKFLOW_AUDITOR_PATH . 'includes/class-manual-suggestion-engine.php';
 require_once LINKFLOW_AUDITOR_PATH . 'includes/class-http-link-checker.php';
 require_once LINKFLOW_AUDITOR_PATH . 'includes/class-admin-page.php';
+require_once LINKFLOW_AUDITOR_PATH . 'includes/class-editor-metabox.php';
 require_once LINKFLOW_AUDITOR_PATH . 'includes/class-plugin.php';
 
 register_activation_hook( __FILE__, array( 'LinkFlow_Auditor', 'activate' ) );

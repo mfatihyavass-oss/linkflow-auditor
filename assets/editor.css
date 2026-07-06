@@ -1,0 +1,99 @@
+/* LinkFlow Auditor — editor metabox styling. */
+
+.lfa-editor-box {
+	font-size: 13px;
+}
+
+.lfa-editor-intro {
+	margin: 0 0 10px;
+}
+
+.lfa-editor-controls {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin: 4px 0 8px;
+}
+
+.lfa-editor-sort-label {
+	font-weight: 600;
+}
+
+.lfa-editor-spinner {
+	float: none;
+	margin: 0;
+}
+
+.lfa-editor-spinner.is-active {
+	visibility: visible;
+}
+
+.lfa-editor-field {
+	margin: 8px 0;
+}
+
+.lfa-editor-exclude-label {
+	display: block;
+	font-weight: 600;
+	margin-bottom: 4px;
+}
+
+.lfa-editor-exclude {
+	max-width: 100%;
+}
+
+.lfa-editor-field-hint {
+	color: #646970;
+	display: block;
+	margin-top: 4px;
+}
+
+.lfa-editor-note {
+	color: #646970;
+	margin: 6px 0;
+}
+
+.lfa-editor-note--warning {
+	color: #b32d2e;
+}
+
+.lfa-editor-message {
+	margin: 6px 0;
+	min-height: 18px;
+}
+
+.lfa-editor-message.lfa-error {
+	color: #b32d2e;
+}
+
+.lfa-editor-results {
+	margin-top: 8px;
+}
+
+.lfa-editor-results .lfa-table-wrap {
+	margin-top: 8px;
+	overflow-x: auto;
+}
+
+.lfa-manual-result-head {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-bottom: 8px;
+}
+
+.lfa-manual-result-head .lfa-manual-result-summary {
+	margin-right: auto;
+}
+
+.lfa-select-col {
+	text-align: center;
+	white-space: nowrap;
+	width: 1%;
+}
+
+.lfa-suggestion-applied {
+	opacity: 0.55;
+}

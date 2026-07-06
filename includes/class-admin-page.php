@@ -12,7 +12,7 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 	 * Renders the dashboard widget and Tools admin page.
 	 */
 	final class LinkFlow_Auditor_Admin_Page {
-		private const VERSION                 = '1.10.4';
+		private const VERSION                 = '1.11.6';
 		private const NONCE_ACTION            = 'linkflow_auditor_admin';
 		private const PAGE_SLUG               = 'linkflow-auditor';
 		private const CRON_HOOK               = 'linkflow_auditor_run_background_scan';
@@ -75,6 +75,19 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 		return $this->url_normalizer->mb_lower( $value );
 	}
 
+	/**
+	 * Build an asset cache-busting version from the file modification time so any
+	 * JS/CSS change busts the browser/CDN cache even if the plugin version is same.
+	 *
+	 * @param string $relative Path relative to the plugin root.
+	 */
+	private function asset_version( string $relative ): string {
+		$path  = LINKFLOW_AUDITOR_PATH . $relative;
+		$mtime = file_exists( $path ) ? (int) filemtime( $path ) : 0;
+
+		return $mtime > 0 ? (string) $mtime : self::VERSION;
+	}
+
 		public function register_dashboard_widget(): void {
 			if ( ! current_user_can( 'manage_options' ) ) {
 				return;
@@ -110,14 +123,14 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 				'lfa-admin',
 				plugins_url( 'assets/admin.css', LINKFLOW_AUDITOR_FILE ),
 				array(),
-				self::VERSION
+				$this->asset_version( 'assets/admin.css' )
 			);
 
 			wp_enqueue_script(
 				'lfa-admin',
 				plugins_url( 'assets/admin.js', LINKFLOW_AUDITOR_FILE ),
 				array( 'jquery' ),
-				self::VERSION,
+				$this->asset_version( 'assets/admin.js' ),
 				true
 			);
 
@@ -1606,7 +1619,7 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 				return wp_date( get_option( 'date_format' ) . ' ' . get_option( 'time_format' ), $timestamp );
 			}
 
-		public function render_manual_suggestions_results( array $suggestions, string $target_url, string $mode = 'phrase', string $source_url = '', bool $has_more = false, string $empty_message = '' ): string {
+		public function render_manual_suggestions_results( array $suggestions, string $target_url, string $mode = 'phrase', string $source_url = '', bool $has_more = false, string $empty_message = '', bool $enable_bulk = false ): string {
 			if ( empty( $suggestions ) ) {
 				$message = '' !== $empty_message ? $empty_message : esc_html__( 'Uygun düz metin eşleşmesi bulunamadı.', 'linkflow-auditor' );
 				return '<p class="lfa-empty">' . esc_html( $message ) . '</p>';
@@ -1646,8 +1659,20 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 				disabled( ! $has_more, true, false ),
 				esc_html__( 'Önerileri değiştir', 'linkflow-auditor' )
 			);
+			if ( $enable_bulk ) {
+				printf(
+					'<button type="button" class="button button-primary button-hero lfa-manual-apply-selected">%s (<span class="lfa-selected-count">0</span>)</button>',
+					esc_html__( 'Seçilenleri uygula', 'linkflow-auditor' )
+				);
+			}
 			echo '</div>';
 			echo '<div class="lfa-table-wrap"><table class="widefat striped lfa-status-table lfa-suggestion-table"><thead><tr>';
+			if ( $enable_bulk ) {
+				printf(
+					'<th class="lfa-select-col"><input type="checkbox" class="lfa-suggestion-select-all" title="%s"></th>',
+					esc_attr__( 'Tümünü seç', 'linkflow-auditor' )
+				);
+			}
 			echo '<th>' . esc_html__( 'Kaynak içerik', 'linkflow-auditor' ) . '</th>';
 			echo '<th>' . esc_html__( 'Linklenecek ifade', 'linkflow-auditor' ) . '</th>';
 			if ( $is_source_mode ) {
@@ -1658,6 +1683,9 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 
 			foreach ( $suggestions as $suggestion ) {
 				echo '<tr class="lfa-manual-suggestion-row">';
+				if ( $enable_bulk ) {
+					echo '<td class="lfa-select-col">' . $this->render_suggestion_select( $suggestion, $target_url ) . '</td>';
+				}
 				echo '<td>' . $this->health_title_cell( (string) ( $suggestion['source_title'] ?? '' ), (string) ( $suggestion['source_url'] ?? '' ) ) . $this->render_suggestion_source_meta( $suggestion ) . '</td>';
 				echo '<td>' . $this->render_suggestion_context( $suggestion ) . '</td>';
 				if ( $is_source_mode ) {
@@ -1698,6 +1726,30 @@ if ( ! class_exists( 'LinkFlow_Auditor_Admin_Page' ) ) {
 				esc_attr( $anchor ),
 				esc_attr( $target ),
 				esc_html__( 'Kabul et', 'linkflow-auditor' )
+			);
+		}
+
+		/**
+		 * Render a bulk-select checkbox carrying the accept payload for a suggestion.
+		 *
+		 * @param array<string,mixed> $suggestion Suggestion row.
+		 * @param string              $target_url Target URL override (empty for source-URL mode).
+		 */
+		private function render_suggestion_select( array $suggestion, string $target_url ): string {
+			$source_id = isset( $suggestion['source_id'] ) ? (int) $suggestion['source_id'] : 0;
+			$anchor    = (string) ( $suggestion['anchor'] ?? '' );
+			$target    = '' !== $target_url ? $target_url : (string) ( $suggestion['target_url'] ?? '' );
+
+			if ( $source_id <= 0 || '' === trim( $anchor ) || '' === trim( $target ) ) {
+				return '';
+			}
+
+			return sprintf(
+				'<input type="checkbox" class="lfa-suggestion-select" data-source-id="%d" data-anchor="%s" data-target-url="%s" aria-label="%s">',
+				$source_id,
+				esc_attr( $anchor ),
+				esc_attr( $target ),
+				esc_attr__( 'Bu öneriyi seç', 'linkflow-auditor' )
 			);
 		}
 

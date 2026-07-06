@@ -6,7 +6,7 @@ The plugin is designed for content-heavy WordPress sites where SEO teams need to
 
 ## Status
 
-- Current version: `1.10.4`
+- Current version: `1.11.6`
 - WordPress minimum: `6.4`
 - PHP minimum: `7.4`
 - Main plugin file: `linkflow-auditor.php`
@@ -18,6 +18,7 @@ The plugin is designed for content-heavy WordPress sites where SEO teams need to
 - Internal link count report for published public post types.
 - Internal link suggestions that prioritize pages with fewer internal links, show source metrics, and can be accepted, dismissed, or rotated in batches of 25.
 - Manual internal link suggestion builder for finding a phrase across posts/pages and linking it to a chosen internal URL, plus a source-URL mode that finds possible outgoing internal links from one page.
+- In-editor internal-link suggestion metabox on the post/page editor: scan the content being edited, get up to 25 outgoing internal-link suggestions with a priority selector (least-linked, oldest or newest targets), and accept one to link it directly into the content.
 - External links report: every outbound link with its anchor text and target URL, plus manual remove/replace.
 - Link Health report: duplicate permalinks, orphan content, dead-end content, insecure `http://` internal links and weak/empty anchor text.
 - Collapsible Link Health sections, closed by default.
@@ -91,6 +92,20 @@ The plugin returns up to 25 source posts/pages where the phrase appears in edita
 Admins can also switch to source-URL mode, enter one published internal URL, and get up to 25 candidate outgoing link opportunities from that content. Each result shows the phrase found on the source page and the internal URL it can link to. Manual results can also be rotated to a different batch of 25 and the rotation record can be cleared.
 
 When the "least-linked sources" sort is used, the ordering is based on the latest internal link scan. If no internal scan exists yet, the UI prompts the admin to run one first.
+
+### Editor Internal-Link Suggestions
+
+A **LinkFlow Auditor — İç Link Önerileri** metabox is added to the post and page editor (both the classic and block editors), shown below the content like a typical SEO panel.
+
+From the metabox the editor can:
+
+- Pick a scan priority — least-linked targets first, oldest targets first, or newest targets first.
+- Enter **negatif kelimeler** (comma/space separated) that must not be used as anchor text for this scan (e.g. very common site-wide words like `hukuk` or `dava`).
+- Press **Tara ve öneri getir** to scan the content currently being edited.
+- Get up to 25 outgoing internal-link suggestions built only from safe plain-text phrases (existing links, code/preformatted areas and shortcode-like text are skipped).
+- Press **Kabul et** to link the phrase directly into the content (published or draft), or **Önerileri değiştir** to load a different batch of 25.
+
+Suggestions work for both published and draft content, so links can be planned while the post is still being written. The scan reads the last saved content, so it is best to save the draft before scanning. Link targets are still limited to published content. Each accepted link is written straight into the stored content, so the editor is reminded to refresh the page afterwards to avoid overwriting the change with an in-progress editing session. The metabox uses its own AJAX endpoints guarded by an `edit_post` capability check, separate from the `manage_options`-only Tools page endpoints.
 
 ### Broken Links
 
@@ -178,6 +193,29 @@ add_filter( 'linkflow_auditor_scan_batch_size', function () {
 } );
 ```
 
+Change the minimum length a single-word phrase must have to be suggested as an anchor (default `5`; lower it to catch shorter topic titles, raise it to reduce noisy one-word links):
+
+```php
+add_filter( 'linkflow_auditor_suggestion_single_word_min_length', function () {
+	return 4;
+} );
+```
+
+Turn off shared-keyword matching so suggestions only match full title phrases again (default `true`):
+
+```php
+add_filter( 'linkflow_auditor_suggestion_keyword_matching', '__return_false' );
+```
+
+Add or replace the stop words that are never used as one-word/two-word anchors:
+
+```php
+add_filter( 'linkflow_auditor_suggestion_stopwords', function ( array $words ) {
+	$words[] = 'hukuk';
+	return $words;
+} );
+```
+
 Change the background scan batch size:
 
 ```php
@@ -224,6 +262,45 @@ It does not count or check:
 Build a WordPress-installable package with the folder name `linkflow-auditor`. ZIP files, macOS metadata and Git internals should not be included in the package.
 
 ## Changelog
+
+### 1.11.6
+
+- The editor **Seçilenleri uygula** bulk button is now always visible and enabled (large primary button). Clicking it with nothing selected shows a hint instead of the button appearing greyed out.
+- Admin and editor scripts/styles are versioned by file modification time (`filemtime`), so any JS/CSS change busts the browser and CDN cache automatically even when the plugin version is unchanged.
+
+### 1.11.5
+
+- Added **bulk apply** to the editor metabox: each suggestion has a select checkbox (plus a select-all in the header) and a **Seçilenleri uygula** button, so several suggestions can be linked at once with a single editor refresh at the end instead of one refresh per suggestion.
+- Selected suggestions are applied sequentially so each link is saved before the next one is looked up in the updated content.
+
+### 1.11.4
+
+- Fixed: accepting an internal-link suggestion from the post/page editor metabox saved the link to the content, but the open block editor kept the stale content and overwrote the link on the next save. The editor now reloads after a successful accept so the added link is loaded and persists.
+- Editor metabox warns to save unsaved changes before accepting, since the editor refreshes afterwards.
+- Aligned the HTTP link checker version constant with the plugin version.
+
+### 1.11.3
+
+- Added a **negatif kelimeler** field to the editor metabox: words entered there (comma/space separated) are excluded as anchor text for that scan, both from keyword generation and from any full-phrase anchor that contains them.
+
+### 1.11.2
+
+- Suggestions now also match on shared keywords: two-word groups and distinctive single words from a target's title/slug become anchor candidates, so a target can be linked when the source shares only one or two words with it instead of the whole title.
+- Full-title phrases still win when they appear; keyword anchors are the fallback and skip a Turkish/English stop-word list.
+- Added filters: `linkflow_auditor_suggestion_keyword_matching` (on/off), `linkflow_auditor_suggestion_stopwords` (stop-word list) and `linkflow_auditor_suggestion_phrase_limit` (max phrases per target, default 8).
+
+### 1.11.1
+
+- Editor metabox suggestions now work for draft content too, not only published content; link targets stay limited to published content.
+- Lowered the single-word anchor phrase minimum length from 8 to 5 characters (filterable via `linkflow_auditor_suggestion_single_word_min_length`) so distinctive one-word titles produce more suggestions across every suggestion surface.
+
+### 1.11.0
+
+- Added an internal-link suggestion metabox to the post and page editor (classic and block editors) shown below the content.
+- The metabox scans the content being edited and returns up to 25 outgoing internal-link suggestions with a priority selector (least-linked, oldest or newest targets).
+- Accepting a suggestion links the phrase directly into the content; "Önerileri değiştir" loads a different batch of 25.
+- Added dedicated editor AJAX endpoints guarded by an `edit_post` capability check, leaving the existing `manage_options` Tools page endpoints untouched.
+- Refactored the manual suggestion engine so source-URL and post-ID suggestion building share one code path.
 
 ### 1.10.4
 

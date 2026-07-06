@@ -218,6 +218,44 @@ if ( ! class_exists( 'LinkFlow_Auditor_Manual_Suggestion_Engine' ) ) {
 				return $source;
 			}
 
+			return $this->build_link_suggestions_from_post( $source, $sort, $excluded_ids, $limit );
+		}
+
+		/**
+		 * Build outgoing internal-link suggestions for one published post by its ID.
+		 *
+		 * Used by the post/page editor metabox so suggestions are generated for the
+		 * content the user is currently editing without a URL round-trip.
+		 *
+		 * @param int                $source_id    Source post ID.
+		 * @param string             $sort         Sort mode.
+		 * @param array<string,bool> $excluded_ids Suggestion IDs to skip.
+		 * @param int                $limit        Maximum suggestions to return.
+		 * @return array<int,array<string,mixed>>|\WP_Error
+		 */
+		public function build_link_suggestions_for_post( int $source_id, string $sort, array $excluded_ids = array(), int $limit = self::MANUAL_SUGGESTION_LIMIT ) {
+			$source = get_post( $source_id );
+
+			// Suggestions are offered for drafts too, so the target links can be added
+			// while the content is still being written. Only trashed/auto-draft (empty)
+			// content is rejected. Link targets are still limited to published content.
+			if ( ! $source instanceof WP_Post || in_array( (string) $source->post_status, array( 'trash', 'auto-draft' ), true ) ) {
+				return new WP_Error( 'lfa_source_unavailable', esc_html__( 'Bu içerik taranamıyor. Önce içeriği kaydedin.', 'linkflow-auditor' ) );
+			}
+
+			return $this->build_link_suggestions_from_post( $source, $sort, $excluded_ids, $limit );
+		}
+
+		/**
+		 * Build outgoing internal-link suggestions for a resolved source post.
+		 *
+		 * @param WP_Post            $source       Source post.
+		 * @param string             $sort         Sort mode.
+		 * @param array<string,bool> $excluded_ids Suggestion IDs to skip.
+		 * @param int                $limit        Maximum suggestions to return.
+		 * @return array<int,array<string,mixed>>|\WP_Error
+		 */
+		private function build_link_suggestions_from_post( WP_Post $source, string $sort, array $excluded_ids = array(), int $limit = self::MANUAL_SUGGESTION_LIMIT ) {
 			if ( '' === trim( (string) $source->post_content ) || ! class_exists( 'DOMDocument' ) ) {
 				return array();
 			}

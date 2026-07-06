@@ -12,7 +12,7 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 	 * Main plugin class.
 	 */
 	final class LinkFlow_Auditor {
-			private const VERSION               = '1.10.4';
+			private const VERSION               = '1.11.6';
 			private const REPORT_OPTION         = 'linkflow_auditor_report';
 			private const SETTINGS_OPTION       = 'linkflow_auditor_settings';
 			private const IGNORED_SUGGESTIONS_OPTION = 'linkflow_auditor_ignored_suggestions';
@@ -107,6 +107,13 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 		private $admin_page;
 
 		/**
+		 * Post/page editor internal-link suggestion metabox.
+		 *
+		 * @var LinkFlow_Auditor_Editor_Metabox
+		 */
+		private $editor_metabox;
+
+		/**
 		 * Return singleton instance.
 		 */
 		public static function instance(): self {
@@ -135,6 +142,12 @@ if ( ! class_exists( 'LinkFlow_Auditor' ) ) {
 					function (): array {
 						return $this->get_content_ids();
 					}
+				);
+				$this->editor_metabox = new LinkFlow_Auditor_Editor_Metabox(
+					$this->manual_suggestion_engine,
+					$this->admin_page,
+					$this->link_editor,
+					$this->url_normalizer
 				);
 
 				add_filter( 'cron_schedules', array( $this, 'add_cron_schedule' ) );
